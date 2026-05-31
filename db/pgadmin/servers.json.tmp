@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "dns-resilience-observatory",
+      "Group": "Servers",
+      "Host": "${PGADMIN_HOST}",
+      "Port": ${PGADMIN_PORT},
+      "MaintenanceDB": "${PGADMIN_DB}",
+      "Username": "${PGADMIN_USER}",
+      "Password": "${PGADMIN_PASSWORD}",
+      "SavePassword": true,
+      "SSLMode": "prefer"
+    }
+  }
+}
