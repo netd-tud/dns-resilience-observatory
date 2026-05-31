@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{title}} - API Documentation</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="redoc-container"></div>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+    <script>
+        var spec = {{openapi_json|safe}};
+
+        Redoc.init(spec, {
+            theme: {
+                colors: {
+                    primary: {
+                        main: "#1aa59a"
+                    }
+                },
+                typography: {
+                    fontSize: "14px",
+                    fontFamily: '"Roboto", sans-serif',
+                    headings: {
+                        fontFamily: '"Montserrat", sans-serif'
+                    }
+                },
+                sidebar: {
+                    backgroundColor: "#f8f9fa"
+                }
+            },
+            scrollYOffset: 60,
+            hideDownloadButton: false,
+            disableSearch: false,
+            expandResponses: "200,201",
+            jsonSampleExpandLevel: 2,
+            hideSingleRequestSampleTab: true,
+            menuToggle: true,
+            nativeScrollbars: false,
+            pathInMiddlePanel: true,
+            requiredPropsFirst: true,
+            sortPropsAlphabetically: true,
+            showObjectSchemaExamples: true
+        }, document.getElementById("redoc-container"));
+    </script>
+</body>
+</html>
