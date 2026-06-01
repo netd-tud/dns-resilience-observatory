@@ -13,315 +13,7 @@
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin=""
     />
-    <style>
-        :root {
-            --kindns-teal: #58c4c4;
-            --kindns-blue: #4463ae;
-            --ink: #1f2430;
-            --muted: #5f6674;
-            --border: #e2e6ef;
-            --panel: #ffffff;
-            --surface: #f7f9fc;
-            --danger: #e45757;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            font-family: "Open Sans", Arial, Helvetica, sans-serif;
-            color: var(--ink);
-            background: #ffffff;
-            min-height: 100vh;
-        }
-
-        a {
-            color: inherit;
-            text-decoration: none;
-        }
-
-        .menubar {
-            background: #ffffff;
-            border-bottom: 1px solid var(--border);
-            padding: 12px 6vw;
-        }
-
-        .menu-inner {
-            max-width: 1080px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .menu-title {
-            font-weight: 700;
-            color: var(--kindns-blue);
-            letter-spacing: 0.02em;
-        }
-
-        .menu-link {
-            font-weight: 600;
-            color: var(--kindns-blue);
-        }
-
-        .banner {
-            background: var(--kindns-teal);
-            padding: 32px 6vw;
-        }
-
-        .banner-inner {
-            max-width: 960px;
-            margin: 0 auto;
-            text-align: center;
-        }
-
-        .banner h1 {
-            margin: 0;
-            font-size: clamp(1.8rem, 3.2vw, 2.8rem);
-            color: #ffffff;
-            font-weight: 700;
-        }
-
-        .content {
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 32px 6vw 48px;
-            display: grid;
-            gap: 24px;
-        }
-
-        .query-card {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            background: var(--panel);
-        }
-
-        .query-grid {
-            display: grid;
-            grid-template-columns: minmax(200px, 1fr) auto;
-            gap: 12px;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            padding: 12px 14px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            font-size: 1rem;
-        }
-
-        input[type="text"]:focus {
-            outline: none;
-            border-color: var(--kindns-blue);
-            box-shadow: 0 0 0 3px rgba(68, 99, 174, 0.15);
-        }
-
-        button {
-            padding: 12px 18px;
-            border: none;
-            border-radius: 8px;
-            background: var(--kindns-blue);
-            color: #ffffff;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #364f9c;
-        }
-
-        .examples {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 12px;
-        }
-
-        .chip {
-            padding: 6px 12px;
-            border-radius: 999px;
-            border: 1px solid var(--border);
-            color: var(--kindns-blue);
-            font-size: 0.9rem;
-            cursor: pointer;
-        }
-
-        .chip:hover {
-            border-color: var(--kindns-blue);
-            background: rgba(68, 99, 174, 0.08);
-        }
-
-        .status {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 600;
-            margin-top: 10px;
-            color: var(--muted);
-        }
-
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--kindns-teal);
-        }
-
-        .results {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            background: var(--panel);
-        }
-
-        .results table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.95rem;
-        }
-
-        .results th,
-        .results td {
-            text-align: left;
-            padding: 10px 8px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .results th {
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-size: 0.72rem;
-        }
-
-        .empty {
-            color: var(--muted);
-        }
-
-        .tile {
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 18px;
-            background: var(--surface);
-            display: grid;
-            gap: 16px;
-        }
-
-        .tile-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .tile-title {
-            font-size: clamp(1.4rem, 3vw, 2.2rem);
-            font-weight: 700;
-            color: var(--kindns-blue);
-        }
-
-        .tile-meta {
-            font-size: 0.95rem;
-            color: var(--muted);
-        }
-
-        .tile-details {
-            display: grid;
-            gap: 10px;
-        }
-
-        .detail-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 8px 0;
-            border-bottom: 1px dashed var(--border);
-        }
-
-        .detail-row:last-child {
-            border-bottom: none;
-        }
-
-        .detail-label {
-            font-weight: 600;
-        }
-
-        .detail-value {
-            font-weight: 700;
-            color: var(--kindns-blue);
-        }
-
-        .detail-indent {
-            margin-left: 18px;
-            font-size: 0.95rem;
-            color: var(--muted);
-        }
-
-        .check {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .checkmark {
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.6rem;
-            color: #ffffff;
-            background: var(--kindns-teal);
-            text-transform: uppercase;
-        }
-
-        .checkmark.off {
-            background: var(--danger);
-        }
-
-        .map-wrap {
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            height: 320px;
-        }
-
-        .leaflet-container {
-            font-family: "Open Sans", Arial, Helvetica, sans-serif;
-        }
-
-        footer {
-            background: var(--kindns-teal);
-            color: #ffffff;
-            padding: 20px 6vw;
-            text-align: center;
-            font-size: 0.9rem;
-        }
-
-        @media (max-width: 720px) {
-            .menu-inner {
-                flex-direction: column;
-                gap: 8px;
-                align-items: flex-start;
-            }
-
-            .query-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .detail-row {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/frontend/styles.css" />
 </head>
 <body>
     <header class="menubar">
@@ -346,7 +38,7 @@
             <div class="examples">
                 <span class="chip" data-value="1.1.1.1">1.1.1.1</span>
                 <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
-                <span class="chip" data-value="AS15169">AS15169</span>
+                <span class="chip" data-value="AS3320">AS3320</span>
                 <span class="chip" data-value="DE">DE</span>
             </div>
             <div class="status" id="status">
@@ -369,12 +61,26 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""
     ></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
     <script>
         const apiBaseUrl = "{{ api_base_url }}".replace(/\/+$/, "");
         const input = document.getElementById("query-input");
         const results = document.getElementById("results");
         const statusText = document.getElementById("status-text");
         const statusDot = document.querySelector(".status-dot");
+
+        function loadPlotly() {
+            if (window.Plotly) {
+                return Promise.resolve();
+            }
+            return new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "https://unpkg.com/plotly.js-dist-min@2.32.0/plotly.min.js";
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error("Failed to load Plotly"));
+                document.head.appendChild(script);
+            });
+        }
 
         function setStatus(message, tone) {
             statusText.textContent = message;
@@ -435,6 +141,38 @@
                 return;
             }
 
+            const countrySummary = payload.target_type === "country"
+                ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Public resolvers</span>
+                        <span class="detail-value">${payload.public_resolver_count ?? "-"}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Closed resolvers</span>
+                        <span class="detail-value">${payload.closed_resolver_count ?? "-"}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Forwarders</span>
+                        <span class="detail-value">${payload.forwarder_count ?? "-"}</span>
+                    </div>
+                `
+                : "";
+
+            if (payload.target_type === "country") {
+                results.innerHTML = `
+                    <div class="tile">
+                        <div class="tile-header">
+                            <div class="tile-title">${payload.target}</div>
+                            <div class="tile-meta">Country overview</div>
+                        </div>
+                        <div class="tile-details">
+                            ${countrySummary}
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
             const rows = payload.resolvers.map((resolver) => {
                 const ip = resolver.ipv4 || resolver.ipv6 || "-";
                 return `
@@ -471,10 +209,17 @@
 
         function renderResolverSummary(summary) {
             const checkmark = (value) => {
+                if (value === null || value === undefined) {
+                    return "-";
+                }
                 const cls = value ? "checkmark" : "checkmark off";
-                const label = value ? "OK" : "NO";
-                return `<span class="${cls}">${label}</span>`;
+                const symbol = value ? "✓" : "✕";
+                return `<span class="${cls}">${symbol}</span>`;
             };
+
+            const forwarderCounts = summary.forwarder_countries || [];
+            const forwarderGraphId = `forwarder-${Date.now()}`;
+            const forwarderToggleId = `forwarder-toggle-${Date.now()}`;
 
             const mapId = `map-${Date.now()}`;
             const anycastDetails = summary.anycast_found
@@ -485,16 +230,39 @@
                 `
                 : `<div class="detail-indent">No anycast sites available.</div>`;
 
+            const lastObservation = summary.last_observation_ts
+                ? new Date(summary.last_observation_ts).toLocaleString()
+                : "-";
+
             results.innerHTML = `
                 <div class="tile">
                     <div class="tile-header">
                         <div class="tile-title">${summary.resolver_ip}</div>
-                        <div class="tile-meta">Resolver overview</div>
                     </div>
                     <div class="tile-details">
                         <div class="detail-row">
                             <span class="detail-label">In Resolver database</span>
                             <span class="detail-value check">${checkmark(summary.resolver_found)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Public resolver</span>
+                            <span class="detail-value check">${checkmark(summary.resolver_is_public)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Last observed in measurements</span>
+                            <span class="detail-value">${lastObservation}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Open forwarder IPs relaying to ${summary.resolver_ip} [#]</span>
+                            <span class="detail-value">${summary.forwarder_entry_count ?? 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">ASNs with open forwarders that relay queries to ${summary.resolver_ip} [#]</span>
+                            <span class="detail-value">${summary.forwarder_asn_count ?? 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Countries with open forwarders that relay queries to ${summary.resolver_ip} [#]</span>
+                            <span class="detail-value">${summary.forwarder_country_count ?? 0}</span>
                         </div>
                         <div class="detail-row">
                             <span class="detail-label">Anycast</span>
@@ -503,6 +271,13 @@
                         ${anycastDetails}
                     </div>
                     <div class="map-wrap" id="${mapId}"></div>
+                    <div class="graph-section">
+                        <div class="tile-header">
+                            <div class="tile-title">Countries with open forwarders that relay queries to ${summary.resolver_ip}</div>
+                            <button class="graph-toggle" id="${forwarderToggleId}" type="button">Show all</button>
+                        </div>
+                        <div class="graph-wrap" id="${forwarderGraphId}"></div>
+                    </div>
                 </div>
             `;
 
@@ -512,6 +287,95 @@
                 const mapEl = document.getElementById(mapId);
                 if (mapEl) {
                     mapEl.innerHTML = `<div class="empty" style="padding: 16px;">No anycast country data to display.</div>`;
+                }
+            }
+
+            const graphEl = document.getElementById(forwarderGraphId);
+            const toggleEl = document.getElementById(forwarderToggleId);
+            if (graphEl) {
+                if (!forwarderCounts.length) {
+                    graphEl.innerHTML = `<div class="empty">No forwarder country data to display.</div>`;
+                } else {
+                    const sorted = [...forwarderCounts].sort((a, b) => b.count - a.count);
+                    let showAll = false;
+
+                    const renderForwarderGraph = () => {
+                        const entries = showAll ? sorted : sorted.slice(0, 10);
+                        const totalCount = entries.reduce((sum, entry) => sum + (entry.count || 0), 0);
+
+                        const labels = [
+                            ...entries.map((entry) => entry.country || "-"),
+                            `${summary.resolver_ip} (${totalCount})`,
+                        ];
+                        const resolverIndex = labels.length - 1;
+
+                        const sources = entries.map((_, index) => index);
+                        const targets = entries.map(() => resolverIndex);
+                        const values = entries.map((entry) => entry.count || 0);
+
+                        const data = [
+                            {
+                                type: "sankey",
+                                orientation: "h",
+                                node: {
+                                    label: labels,
+                                    pad: 18,
+                                    thickness: 20,
+                                    color: [
+                                        ...entries.map(() => "#d9f2ef"),
+                                        "#4463ae",
+                                    ],
+                                    line: {
+                                        color: [
+                                            ...entries.map(() => "#58c4c4"),
+                                            "#2e4686",
+                                        ],
+                                        width: 1,
+                                    },
+                                },
+                                link: {
+                                    source: sources,
+                                    target: targets,
+                                    value: values,
+                                    color: values.map(() => "rgba(68, 99, 174, 0.35)"),
+                                },
+                            },
+                        ];
+
+                        const layout = {
+                            margin: { l: 20, r: 20, t: 10, b: 10 },
+                            paper_bgcolor: "#ffffff",
+                            plot_bgcolor: "#ffffff",
+                            font: {
+                                family: "Open Sans, Arial, Helvetica, sans-serif",
+                                color: "#1f2430",
+                                size: 12,
+                            },
+                        };
+
+                        loadPlotly()
+                            .then(() => {
+                                Plotly.react(graphEl, data, layout, {
+                                    displayModeBar: true,
+                                    responsive: true,
+                                    scrollZoom: true,
+                                });
+                            })
+                            .catch(() => {
+                                graphEl.innerHTML = `<div class="empty">Plotly failed to load.</div>`;
+                            });
+                    };
+
+                    renderForwarderGraph();
+
+                    if (toggleEl) {
+                        toggleEl.textContent = "Show all";
+                        toggleEl.addEventListener("click", () => {
+                            showAll = !showAll;
+                            toggleEl.textContent = showAll ? "Show top 10" : "Show all";
+                            renderForwarderGraph();
+                        });
+                    }
                 }
             }
         }
@@ -553,7 +417,7 @@
             }
 
             setStatus("Fetching resolver data...", "pending");
-            results.innerHTML = `<div class="empty">Loading...</div>`;
+            results.innerHTML = `<div class="empty">Loading... <span class="spinner" aria-hidden="true"></span></div>`;
 
             try {
                 if (type === "resolver") {
