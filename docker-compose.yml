@@ -11,6 +11,7 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - ./db/postgresdb_vol:/var/lib/postgresql
+    shm_size: "1gb"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -27,6 +28,8 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     env_file:
       - .env
+    volumes:
+      - ./.env:/app/.env:ro
     environment:
       DATABASE_ENGINE: postgresql
       DATABASE_HOST: postgres
@@ -34,6 +37,9 @@ services:
       DATABASE_NAME: ${POSTGRES_DB}
       DATABASE_USER: ${POSTGRES_USER}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
       DJANGO_DEBUG: "true"
       DJANGO_ALLOWED_HOSTS: "api,localhost,127.0.0.1"
       CORS_ALLOWED_ORIGINS: "http://localhost:8001,http://frontend:8000"
@@ -46,6 +52,92 @@ services:
       - api_db_network
       - api_frontend_network
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: dns-resilience-observatory-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - api_db_network
+
+  data-gathering:
+    build:
+      context: .
+    container_name: dns-resilience-observatory-data-gathering
+    restart: unless-stopped
+    command: celery -A data_gathering.celery_app worker --beat --loglevel=info
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/data
+    environment:
+      RUN_STARTUP_TASKS: "true"
+      DATABASE_ENGINE: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_TIMEZONE: UTC
+      CELERY_SCHEDULED_TASK: data_gathering.tasks.dispatch.run_all
+      CELERY_SCHEDULE_CRON: "0 0 * * *"
+      DATA_GATHERING_TASKS: ""
+      DATA_DIR: /data
+      ODNS_DATA_DIR: /data/external
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - api_db_network
+
+  data-gathering-run-on-start:
+    build:
+      context: .
+    container_name: dns-resilience-observatory-data-gathering-run-on-start
+    restart: "no"
+    command: celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.run_all
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/data
+    environment:
+      RUN_STARTUP_TASKS: "false"
+      DATABASE_ENGINE: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_TIMEZONE: UTC
+      DATA_GATHERING_TASKS: ""
+      DATA_DIR: /data
+      ODNS_DATA_DIR: /data/external
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      data-gathering:
+        condition: service_started
+    networks:
+      - api_db_network
+
   frontend:
     build:
       context: .
@@ -53,21 +145,36 @@ services:
     restart: unless-stopped
     command: python manage.py runserver 0.0.0.0:8000
     env_file:
-      - .env
+      - .env.frontend
+    volumes:
+      - ./.env.frontend:/app/.env:ro
     environment:
-      DATABASE_ENGINE: sqlite
+      RUN_APPLY_SCHEMA: "false"
+      DATABASE_ENGINE: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DJANGO_DEBUG: "true"
       DJANGO_ALLOWED_HOSTS: "frontend,localhost,127.0.0.1"
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
       API_BASE_URL: "http://api:8000"
     ports:
       - "8001:8000"
     depends_on:
-      - api
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
     networks:
+      - api_db_network
       - api_frontend_network
 
   pgadmin:
-    image: dpage/pgadmin4:8
+    image: dpage/pgadmin4:latest
     container_name: dns-resilience-observatory-pgadmin
     restart: unless-stopped
     environment:
