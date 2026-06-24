@@ -2,7 +2,7 @@ import logging
 from django.core.exceptions import ValidationError
 from ninja import NinjaAPI, Query
 
-from api.schemas import DNSResilienceResponse, ResolverAnycastSummaryResponse
+from api.schemas import DNSResilienceResponse, ResolverAnycastSummaryResponse, ResolverDashboardSummaryResponse
 from resilience.services import dns_resilience_service
 
 logger = logging.getLogger("api")
@@ -47,12 +47,15 @@ def get_dns_resilience_by_resolver(request, resolver_ip: str, limit: int = Query
 )
 def get_dns_resilience_by_prefix(request, network_prefix: str, limit: int = Query(100, ge=1, le=1000)):
     logger.info("DNS resilience request for prefix: %s", network_prefix)
+    normalized_prefix = dns_resilience_service.validate_network_prefix(network_prefix)
     resolvers = dns_resilience_service.get_resolvers_by_prefix(network_prefix, limit=limit)
+    counts = dns_resilience_service.get_prefix_counts(network_prefix)
     return DNSResilienceResponse(
-        target=network_prefix,
+        target=normalized_prefix,
         target_type="prefix",
         total=len(resolvers),
         resolvers=resolvers,
+        **counts,
     )
 
 
@@ -64,11 +67,13 @@ def get_dns_resilience_by_prefix(request, network_prefix: str, limit: int = Quer
 def get_dns_resilience_by_asn(request, asn: str, limit: int = Query(100, ge=1, le=1000)):
     logger.info("DNS resilience request for ASN: %s", asn)
     resolvers = dns_resilience_service.get_resolvers_by_asn(asn, limit=limit)
+    counts = dns_resilience_service.get_asn_counts(asn)
     return DNSResilienceResponse(
         target=asn,
         target_type="asn",
         total=len(resolvers),
         resolvers=resolvers,
+        **counts,
     )
 
 
@@ -88,6 +93,17 @@ def get_dns_resilience_by_country(request, country: str, limit: int = Query(100,
         resolvers=resolvers,
         **counts,
     )
+
+
+@api.get(
+    "/dns-resilience/dashboard/summary",
+    response=ResolverDashboardSummaryResponse,
+    summary="Get DNS resilience dashboard summary",
+)
+def get_dashboard_summary(request):
+    logger.info("DNS resilience dashboard summary request")
+    summary = dns_resilience_service.get_dashboard_summary()
+    return ResolverDashboardSummaryResponse(**summary)
 
 
 @api.get(
