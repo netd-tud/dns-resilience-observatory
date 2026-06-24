@@ -1,0 +1,13 @@
+psycopg[binary]
+python-dotenv
+loguru
+pandas
+polars
+pyarrow
+tqdm
+pycountry
+celery>=5.3,<6
+Django>=4.2,<5.0
+django-ninja>=1.1.0
+django-cors-headers>=4.3.0
+jupyterlab
