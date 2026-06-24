@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from importlib import import_module
 
 from celery import Celery
 from celery.schedules import crontab
@@ -48,4 +49,5 @@ if scheduled_task:
         }
     }
 
-app.autodiscover_tasks(task_modules())
+for module_path in ["data_gathering.tasks.dispatch", *task_modules()]:
+    import_module(module_path)
