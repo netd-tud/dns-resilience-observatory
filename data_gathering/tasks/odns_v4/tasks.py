@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from data_gathering.celery_app import app
-from data_gathering.tasks.odns_v4.fetch_manycast_data_v4 import fetch_manycast_data_v4
-from data_gathering.tasks.odns_v4.fetch_odns_api_data import fetch_odns_api_data
+from data_gathering.external_sources.config import external_data_dir
+from data_gathering.external_sources.manycast.fetcher import fetch as fetch_manycast
+from data_gathering.external_sources.odns_api.fetcher import fetch as fetch_odns_api
 from data_gathering.tasks.odns_v4.script_config import required_config_value, script_logger
 
 
@@ -15,12 +16,8 @@ logger = script_logger(__file__)
 TASK_NAMES = ["data_gathering.tasks.odns.refresh"]
 
 
-def _data_dir() -> Path:
-    return Path(required_config_value(__file__, "data_dir"))
-
-
 def _odns_data_dir() -> Path:
-    return _data_dir() / "external"
+    return external_data_dir()
 
 
 def _protocols() -> list[str]:
@@ -30,9 +27,7 @@ def _protocols() -> list[str]:
 
 def _fetch_odns() -> Path:
     logger.info("Open DNS: fetching API data")
-    parquet_path = fetch_odns_api_data(
-        output_dir=_odns_data_dir(),
-    )
+    parquet_path = fetch_odns_api(output_dir=_odns_data_dir())
     logger.info("Open DNS: fetch complete: {}", parquet_path)
     return parquet_path
 
@@ -45,7 +40,7 @@ def _fetch_manycast(protocol: str) -> Path:
     if protocol != "v4":
         raise ValueError(f"Manycast fetch currently supports v4 only, got {protocol}")
     logger.info("Manycast {}: fetching anycast data", protocol)
-    parquet_path = fetch_manycast_data_v4(output_dir=_odns_data_dir())
+    parquet_path = fetch_manycast(output_dir=_odns_data_dir())
     logger.info("Manycast {}: fetch complete: {}", protocol, parquet_path)
     return parquet_path
 
@@ -71,7 +66,7 @@ def refresh() -> dict[str, int]:
     refreshed = 0
     for protocol in protocols:
         logger.info("ODNS {}: refresh started", protocol)
-        _fetch_odns()
+        #_fetch_odns()
         _fetch_manycast(protocol)
         _load_odns(protocol)
         refreshed += 1
