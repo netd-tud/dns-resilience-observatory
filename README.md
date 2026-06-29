@@ -2,6 +2,56 @@
 Collaboration between TU Dresden and the Internet Society Pulse.
 A project to better understand the DNS resolver ecosystem and assess the resilience of recursive DNS resolvers.
 
+## Clone the Repository
+
+Clone with submodules so measurement tools such as `measurements/tools/zdns` are available:
+
+```bash
+git clone --recurse-submodules <repository-url>
+cd dns-resilience-observatory
+```
+
+If the repository was already cloned without submodules, initialize them with:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Configuration Files
+
+Runtime `.env` files can contain credentials and should stay local. Use the matching `.example` files as templates.
+
+| Runtime file | Purpose |
+| --- | --- |
+| `.env` | Local Docker/Django/PostgreSQL/pgAdmin settings and data-gathering database connection settings. |
+| `data_gathering/external_sources/caida/spoofer/spoofer.conf` | CAIDA Spoofer fetcher URL, paging, and data directory. |
+| `data_gathering/tasks/apnic_dnssec/apnic_dnssec.conf` | APNIC DNSSEC task URLs, worker counts, batch sizes, and data directory. |
+| `data_gathering/tasks/caida_spoofer/caida_spoofer.conf` | CAIDA Spoofer task fetch/import settings. |
+| `data_gathering/tasks/manycast/manycast.conf` | Manycast task logging and data directory settings. |
+| `data_gathering/tasks/odns_v4/odns_v4.conf` | ODNS API, Manycast fetch, and ODNS import settings. |
+| `data_gathering/tasks/webpage_resolver/webpage_resolver.conf` | Web resolver URL import definitions and column mappings. |
+| `db/data-sources.conf` | Source metadata inserted into the `data_source` table. |
+
+Copy examples before running services:
+
+```bash
+cp .env.example .env
+cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
+```
+
+Replace these placeholders for setup:
+
+- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, `DJANGO_SUPERUSER_PASSWORD`, and adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose overrides container-internal values such as frontend `API_BASE_URL=http://api:8000`.
+- `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
+- Task `.conf` files: adjust `data_dir`, worker counts, fetch windows, URLs, and source mappings only if your deployment differs from the defaults.
+- `db/data-sources.conf`: update source metadata only when adding or changing data sources.
+
+If a runtime `.env` or `.conf` file is already tracked, keep the local file but remove it from Git with:
+
+```bash
+git rm --cached <path>
+```
+
 ## Setup and Requirements
 
 For pgAdmin, remove `.tmp` suffix from `db/pgadmin/servers.json.tmp` and replace placeholder values.
@@ -81,6 +131,32 @@ Run:
 ```bash
 python db/apply_schema.py
 ```
+
+### Frontend on a Public Server IP
+
+When serving the frontend via a public IP instead of localhost, replace `<SERVER_IP>` with the server address.
+
+In `.env`:
+
+```env
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,<SERVER_IP>
+API_BASE_URL=http://<SERVER_IP>:8000
+```
+
+In `docker-compose.yml`, add the same host to the API and frontend `DJANGO_ALLOWED_HOSTS`, and allow the frontend origin in the API CORS setting:
+
+```yaml
+api:
+  environment:
+    DJANGO_ALLOWED_HOSTS: "api,localhost,127.0.0.1,<SERVER_IP>"
+    CORS_ALLOWED_ORIGINS: "http://localhost:8001,http://frontend:8000,http://<SERVER_IP>:8001"
+
+frontend:
+  environment:
+    DJANGO_ALLOWED_HOSTS: "frontend,localhost,127.0.0.1,<SERVER_IP>"
+```
+
+The frontend service still uses `API_BASE_URL: "http://api:8000"` inside Docker; this is correct because frontend and API containers communicate over the Docker network.
 
 ## Data Gathering (Celery + RabbitMQ)
 
