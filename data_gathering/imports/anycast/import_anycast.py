@@ -16,9 +16,10 @@ except ModuleNotFoundError:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     logger = logging.getLogger(__name__)
 
-
 OBSERVATORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(OBSERVATORY_ROOT))
+
+from data_gathering.imports.country.country_locations import ensure_country_locations
 
 
 MODULES = {"anycast", "asn", "asn_backend", "location"}
@@ -167,6 +168,27 @@ def _row_count(rows: Any) -> int:
     return len(rows)
 
 
+def _country_values(rows: Any) -> set[str]:
+    try:
+        import polars as pl
+    except ModuleNotFoundError:
+        pl = None
+
+    if _is_empty(rows):
+        return set()
+    if pl is not None and isinstance(rows, pl.DataFrame):
+        if "country" not in rows.columns:
+            return set()
+        return {str(country) for country in rows["country"].drop_nulls().unique().to_list()}
+
+    countries = set()
+    for row in rows:
+        country = row.get("country") if isinstance(row, dict) else None
+        if country is not None:
+            countries.add(str(country))
+    return countries
+
+
 def _iter_rows(rows: Any):
     try:
         import polars as pl
@@ -299,7 +321,7 @@ def validate_mapping(frame, mapping: dict[str, str], modules: list[str]) -> None
 
 def prepare_country_frame(frame, mapping: dict[str, str]):
     import polars as pl
-    from data_gathering.tasks.country_locations import normalize_country
+    from data_gathering.imports.country.country_locations import normalize_country
 
     country_source = mapping["country"]
     country_columns = [
@@ -629,6 +651,7 @@ def import_anycast(
             report["affected_anycast_asn"] = cursor.rowcount
 
         if not _is_empty(country_backend_rows):
+            ensure_country_locations(cursor.connection, _country_values(country_backend_rows), logger)
             cursor.execute(
                 """
                 CREATE TEMP TABLE anycast_country_backend_stage (
