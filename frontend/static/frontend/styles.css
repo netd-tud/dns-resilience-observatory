@@ -806,15 +806,6 @@ button:hover {
     transform: translateY(-2px);
 }
 
-.logo-grid .pulse-logo-card {
-    background: #0C1C2C;
-}
-
-.logo-grid .pulse-logo-card:hover,
-.logo-grid .pulse-logo-card:focus-visible {
-    background: #142d46;
-}
-
 .logo-grid img {
     max-width: 180px;
     max-height: 54px;
@@ -831,6 +822,18 @@ button:hover {
 .logo-grid .logo-medium {
     max-width: 160px;
     max-height: 52px;
+}
+
+.logo-grid .logo-ut {
+    max-width: 160px;
+    max-height: 68px;
+    width: 160px;
+}
+
+.logo-grid .logo-large-inline {
+    max-width: 225px;
+    max-height: 100px;
+    width: 225px;
 }
 
 @media (max-width: 720px) {

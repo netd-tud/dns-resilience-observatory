@@ -1,35 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DNS Resilience Observatory</title>
-    <link rel="icon" href="/static/frontend/assets/favicon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet" />
+{% extends "frontend/base.html" %}
+
+{% block extra_head %}
     <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin=""
     />
-    <link rel="stylesheet" href="/static/frontend/styles.css" />
-</head>
-<body>
-    <header class="menubar">
-        <div class="menu-inner">
-            <a class="menu-brand" href="/">
-                <img class="menu-logo" src="/static/frontend/assets/kindns-logo.png" alt="KINDNS" />
-            </a>
-            <nav class="menu-nav">
-                <a class="menu-link" href="/">Start</a>
-                <a class="menu-link" href="/resolver.html">Resolver Dashboard</a>
-                <a class="menu-link" href="/search.html">Search</a>
-            </nav>
-        </div>
-    </header>
+{% endblock %}
 
+{% block content %}
     <section class="banner" id="page-banner">
         <div class="banner-inner">
             <h1>DNS Resolver Search</h1>
@@ -60,53 +40,9 @@
             </section>
         </section>
     </main>
+{% endblock %}
 
-    <footer class="site-footer">
-        <section class="footer-tiles">
-            <div class="footer-tile logo-tile">
-                <h3>Powered by</h3>
-                <div class="logo-grid">
-                    <a href="https://tu-dresden.de/ing/informatik/sya/netd" target="_blank" rel="noopener">
-                        <img src="/static/frontend/assets/logos/tud-logo-long.svg" alt="TU Dresden logo" />
-                    </a>
-                    <a class="pulse-logo-card" href="https://pulse.internetsociety.org" target="_blank" rel="noopener">
-                        <img src="/static/frontend/assets/logo-pulse-wordmark-light.4324f5fb1785.png" alt="Internet Society Pulse logo" />
-                    </a>
-                    <a href="https://www.icann.org" target="_blank" rel="noopener">
-                        <img src="/static/frontend/assets/logos/icann-logo-tagline-en_680x152.webp" alt="ICANN logo" />
-                    </a>
-                </div>
-                <h3>External data providers</h3>
-                <div class="logo-grid">
-                    <a href="https://net.in.tum.de/" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/tum-logo.png" alt="TU Munich logo" />
-                    </a>
-                    <a href="https://www.routeviews.org/" target="_blank" rel="noopener">
-                        <img class="logo-medium" src="/static/frontend/assets/logos/external/routeviews.svg" alt="Routeviews logo" />
-                    </a>
-                    <a href="https://atlas.ripe.net/" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/external/ripeatlas.svg" alt="RIPE Atlas logo" />
-                    </a>
-                    <a href="https://www.caida.org/" target="_blank" rel="noopener">
-                        <img class="logo-medium" src="/static/frontend/assets/logos/external/caida.png" alt="CAIDA logo" />
-                    </a>
-                    <a href="https://www.maxmind.com/" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/external/maxmind-logo.svg" alt="MaxMind logo" />
-                    </a>
-                    <a href="https://ipinfo.io/" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/external/ipinfo.svg" alt="IPinfo logo" />
-                    </a>
-                    <a href="https://labs.apnic.net" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/external/apnic-labs-logo-short.png" alt="APNIC Labs logo" />
-                    </a>
-                    <a href="https://manycast.net" target="_blank" rel="noopener">
-                        <img class="logo-small" src="/static/frontend/assets/logos/external/manycast-tmp.png" alt="Manycast logo" />
-                    </a>
-                </div>
-            </div>
-        </section>
-    </footer>
-
+{% block scripts %}
     <script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -853,5 +789,4 @@
             runLookup();
         }
     </script>
-</body>
-</html>
+{% endblock %}
