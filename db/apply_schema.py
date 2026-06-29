@@ -298,6 +298,17 @@ STATEMENTS = [
     );
     """,
     """
+    CREATE TABLE IF NOT EXISTS dnssec_resolver_dobit (
+        ip INET PRIMARY KEY REFERENCES resolver(ip) ON DELETE CASCADE,
+        dobit_set BOOLEAN,
+        total_measurements INTEGER NOT NULL,
+        seen_measurements INTEGER NOT NULL,
+        dobit_count INTEGER NOT NULL,
+        last_update_ts TIMESTAMPTZ NOT NULL,
+        source TEXT NOT NULL REFERENCES data_source(source)
+    );
+    """,
+    """
     CREATE TABLE IF NOT EXISTS dnssec_asn (
         asn BIGINT PRIMARY KEY,
         validating BIGINT NOT NULL,
