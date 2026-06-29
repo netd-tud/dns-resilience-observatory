@@ -347,6 +347,28 @@ class DNSResilienceService:
             [normalized],
         )
 
+    @cached()
+    def get_country_dnssec(self, country: str) -> dict:
+        normalized = self.validate_country_code(country)
+        row = self._fetchone(
+            """
+            SELECT
+                validating_pc::DOUBLE PRECISION AS dnssec_validating_pc,
+                partial_validating_pc::DOUBLE PRECISION AS dnssec_partial_validating_pc,
+                last_update_ts AS dnssec_last_update_ts
+            FROM dnssec_country
+            WHERE country = %s
+            """,
+            [normalized],
+        )
+        if not row:
+            return {
+                "dnssec_validating_pc": None,
+                "dnssec_partial_validating_pc": None,
+                "dnssec_last_update_ts": None,
+            }
+        return row
+
     def _spoofing_scope_summary(self, scope_sql: str, params: list) -> dict:
         row = self._fetchone(
             f"""
@@ -582,6 +604,7 @@ class DNSResilienceService:
             anycast_params=[normalized, normalized, normalized, normalized],
         )
         summary.update(self.get_country_spoofing(normalized))
+        summary.update(self.get_country_dnssec(normalized))
         return summary
 
     @cached()
