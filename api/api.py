@@ -27,7 +27,7 @@ def validation_error_handler(request, exc):
 @api.get(
     "/dns-resilience/resolver/{resolver_ip}",
     response=DNSResilienceResponse,
-    summary="Get DNS resilience data for a resolver IP",
+    summary="Get base resolver data for a resolver IP",
 )
 def get_dns_resilience_by_resolver(request, resolver_ip: str, limit: int = Query(100, ge=1, le=1000)):
     logger.info("DNS resilience request for resolver IP: %s", resolver_ip)
@@ -38,6 +38,42 @@ def get_dns_resilience_by_resolver(request, resolver_ip: str, limit: int = Query
         total=len(resolvers),
         resolvers=resolvers,
     )
+
+
+@api.get(
+    "/dns-resilience/resolver/{resolver_ip}/qmin",
+    summary="Get QMIN data for a resolver IP",
+)
+def get_resolver_qmin(request, resolver_ip: str):
+    logger.info("QMIN request for resolver IP: %s", resolver_ip)
+    return dns_resilience_service.get_resolver_qmin(resolver_ip)
+
+
+@api.get(
+    "/dns-resilience/resolver/{resolver_ip}/anycast",
+    summary="Check anycast prefix coverage for a resolver IP",
+)
+def get_resolver_anycast(request, resolver_ip: str):
+    logger.info("Anycast request for resolver IP: %s", resolver_ip)
+    return dns_resilience_service.get_resolver_anycast(resolver_ip)
+
+
+@api.get(
+    "/dns-resilience/resolver/{resolver_ip}/anycast/sites",
+    summary="Get anycast backend sites for a resolver IP",
+)
+def get_resolver_anycast_sites(request, resolver_ip: str):
+    logger.info("Anycast sites request for resolver IP: %s", resolver_ip)
+    return dns_resilience_service.get_resolver_anycast_sites(resolver_ip)
+
+
+@api.get(
+    "/dns-resilience/resolver/{resolver_ip}/spoofing",
+    summary="Get spoofing prefix data for a resolver IP",
+)
+def get_resolver_spoofing(request, resolver_ip: str):
+    logger.info("Spoofing request for resolver IP: %s", resolver_ip)
+    return dns_resilience_service.get_resolver_spoofing(resolver_ip)
 
 
 @api.get(
@@ -78,6 +114,42 @@ def get_dns_resilience_by_asn(request, asn: str, limit: int = Query(100, ge=1, l
 
 
 @api.get(
+    "/dns-resilience/ASN/{asn}/qmin",
+    summary="Get QMIN aggregate data for an ASN",
+)
+def get_asn_qmin(request, asn: str):
+    logger.info("QMIN request for ASN: %s", asn)
+    return dns_resilience_service.get_asn_qmin(asn)
+
+
+@api.get(
+    "/dns-resilience/ASN/{asn}/anycast",
+    summary="Get anycast prefix coverage for an ASN",
+)
+def get_asn_anycast(request, asn: str):
+    logger.info("Anycast request for ASN: %s", asn)
+    return dns_resilience_service.get_asn_anycast(asn)
+
+
+@api.get(
+    "/dns-resilience/ASN/{asn}/anycast/sites",
+    summary="Get anycast backend sites for an ASN",
+)
+def get_asn_anycast_sites(request, asn: str):
+    logger.info("Anycast sites request for ASN: %s", asn)
+    return dns_resilience_service.get_asn_anycast_sites(asn)
+
+
+@api.get(
+    "/dns-resilience/ASN/{asn}/spoofing",
+    summary="Get spoofing aggregate data for an ASN",
+)
+def get_asn_spoofing(request, asn: str):
+    logger.info("Spoofing request for ASN: %s", asn)
+    return dns_resilience_service.get_asn_spoofing(asn)
+
+
+@api.get(
     "/dns-resilience/country/{country}",
     response=DNSResilienceResponse,
     summary="Get DNS resilience data for a country",
@@ -93,6 +165,42 @@ def get_dns_resilience_by_country(request, country: str, limit: int = Query(100,
         resolvers=resolvers,
         **counts,
     )
+
+
+@api.get(
+    "/dns-resilience/country/{country}/qmin",
+    summary="Get QMIN aggregate data for a country",
+)
+def get_country_qmin(request, country: str):
+    logger.info("QMIN request for country: %s", country)
+    return dns_resilience_service.get_country_qmin(country)
+
+
+@api.get(
+    "/dns-resilience/country/{country}/anycast",
+    summary="Get anycast prefix coverage for a country",
+)
+def get_country_anycast(request, country: str):
+    logger.info("Anycast request for country: %s", country)
+    return dns_resilience_service.get_country_anycast(country)
+
+
+@api.get(
+    "/dns-resilience/country/{country}/anycast/sites",
+    summary="Get anycast backend sites for a country",
+)
+def get_country_anycast_sites(request, country: str):
+    logger.info("Anycast sites request for country: %s", country)
+    return dns_resilience_service.get_country_anycast_sites(country)
+
+
+@api.get(
+    "/dns-resilience/country/{country}/spoofing",
+    summary="Get spoofing aggregate data for a country",
+)
+def get_country_spoofing(request, country: str):
+    logger.info("Spoofing request for country: %s", country)
+    return dns_resilience_service.get_country_spoofing(country)
 
 
 @api.get(
