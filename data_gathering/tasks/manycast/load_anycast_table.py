@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from importlib import import_module
 import ipaddress
 from pathlib import Path
 
@@ -11,7 +10,8 @@ import polars as pl
 
 from data_gathering.external_sources.config import external_data_dir
 from data_gathering.external_sources.manycast.fetcher import fetch as fetch_manycast
-from data_gathering.tasks.country_locations import normalize_country
+from data_gathering.imports.anycast.import_anycast import import_anycast
+from data_gathering.imports.country.country_locations import normalize_country
 from data_gathering.tasks.manycast.script_config import script_logger
 
 
@@ -121,8 +121,7 @@ def _prepare_rows(manycast_path: Path) -> AnycastImportRows:
 
 
 def _import_rows(rows: AnycastImportRows) -> dict[str, int]:
-    importer = import_module("data_gathering.import.anycast.import_anycast")
-    return importer.import_anycast(
+    return import_anycast(
         anycast_rows=rows.anycast_rows,
         asn_rows=rows.asn_rows,
         country_backend_rows=rows.country_backend_rows,

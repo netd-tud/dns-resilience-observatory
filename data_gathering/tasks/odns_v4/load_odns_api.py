@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import ipaddress
-import importlib.util
 from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl 
 from data_gathering.external_sources.config import external_data_dir
-from data_gathering.tasks.country_locations import normalize_country
+from data_gathering.imports.anycast.import_anycast import import_anycast
+from data_gathering.imports.forwarder.import_forwarders import import_forwarders
+from data_gathering.imports.resolver.import_resolvers import import_resolvers
+from data_gathering.imports.spoofing.import_spoofing import import_spoofing
+from data_gathering.imports.country.country_locations import normalize_country
 from data_gathering.tasks.odns_v4.script_config import required_config_value, script_logger
 
 logger = script_logger(__file__)
@@ -27,7 +30,7 @@ RESOLVER_OUTPUT_COLUMNS = [
     "is_public",
     "protocol",
     "supported_protocols",
-    "last_observation_ts",
+    "last_update_ts",
     "source",
 ]
 
@@ -43,7 +46,7 @@ FORWARDER_OUTPUT_COLUMNS = [
     "org",
     "org_short",
     "country",
-    "last_observation_ts",
+    "last_update_ts",
     "source",
 ]
 
@@ -51,7 +54,7 @@ RESOLVER_IMPORT_MAPPING = (
     "ip:ipv4,"
     "is_public:is_public,"
     "source:source,"
-    "last_update_ts:last_observation_ts,"
+    "last_update_ts:last_update_ts,"
     "asn:asn,"
     "prefix:bgp_prefix,"
     "org:org,"
@@ -63,45 +66,17 @@ FORWARDER_IMPORT_MAPPING = (
     "ip:ip,"
     "is_public:is_public,"
     "source:source,"
-    "last_update_ts:last_observation_ts,"
+    "last_update_ts:last_update_ts,"
     "asn:asn,"
     "prefix:bgp_prefix,"
     "org:org,"
     "country:country,"
+    "type:type,"
     "protocol:supported_protocols,"
     "upstream_ip:resolver"
 )
 FORWARDER_IMPORT_MODULES = "forwarder,asn,org,prefix,location,protocol,upstream"
-
-
-def _load_resolver_importer():
-    importer_path = OBSERVATORY_ROOT / "data_gathering" / "import" / "resolver" / "import_resolvers.py"
-    spec = importlib.util.spec_from_file_location("resolver_import_resolvers", importer_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load resolver importer from {importer_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.import_resolvers
-
-
-def _load_forwarder_importer():
-    importer_path = OBSERVATORY_ROOT / "data_gathering" / "import" / "forwarder" / "import_forwarders.py"
-    spec = importlib.util.spec_from_file_location("forwarder_import_forwarders", importer_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load forwarder importer from {importer_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.import_forwarders
-
-
-def _load_anycast_importer():
-    importer_path = OBSERVATORY_ROOT / "data_gathering" / "import" / "anycast" / "import_anycast.py"
-    spec = importlib.util.spec_from_file_location("anycast_import_anycast", importer_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load anycast importer from {importer_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.import_anycast
+ODNS_SOURCE = "odns-api"
 
 
 def _write_parquet(
@@ -163,8 +138,16 @@ def ipv4_to_int_expr(col: pl.Expr) -> pl.Expr:
         + octets.list.get(3)
     )
 
-def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], list[dict[str, object]], pl.DataFrame, pl.DataFrame]:
+def load_odns_data(
+    odns: Path,
+    anycast: Path,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     df_odns = pl.read_parquet(odns)
+    df_odns = df_odns.with_columns(
+        pl.col("timestamp_request")
+        .fill_null(pl.col("timestamp_request").min())
+        .alias("timestamp_request")
+    )
     anycast = pl.read_parquet(anycast)
     # Perform any necessary data processing or merging here
     # We recommend filtering on (AB > 3) || (GCD > 1) when high confidence is needed
@@ -240,12 +223,12 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
         df_odns
         .filter((pl.col('resolver_type')=='Resolver') | ((pl.col('resolver_type')=='Forwarder') & pl.col('queried_ip_anycast_supported')))
         .rename({'queried_ip':'ipv4','queried_ip_asn':'asn','queried_ip_prefix':'bgp_prefix',
-                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols'})
-        .select('ipv4','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols'})
+        .select('ipv4','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').explode().drop_nulls().unique(),
         )
     )
@@ -269,6 +252,20 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
         "replying_ip_anycast_prefix": "prefix",
         "queried_ip_asn": "asn",
     })
+
+    tfwd_spoofing = df_odns.filter(
+        (pl.col("resolver_type") == "Transparent Forwarder")
+        & (pl.col("replying_ip_anycast_supported"))
+    ).select("queried_ip","queried_ip_asn","queried_ip_country", "timestamp_request").with_columns(
+        pl.col("queried_ip").str.replace(r"\.\d+$", ".0/24").alias("prefix")
+    ).group_by("prefix").agg(
+        pl.col("timestamp_request").max().dt.replace_time_zone("UTC").alias("last_update_ts"),
+        pl.col("queried_ip_asn").first().alias("asn"),
+        pl.col("queried_ip_country").first().alias("country"),
+        pl.lit(None, dtype=pl.Boolean).alias("nat"),
+        pl.lit("unknown").alias("privatespoof"),
+        pl.lit("received").alias("routedspoof")
+    )
 
     forwarder_only = df_odns.filter(
         (pl.col("resolver_type") == "Forwarder")
@@ -321,32 +318,32 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
         pl.concat([
         forwarder_only
         .rename({'backend_resolver':'ipv4','backend_resolver_asn':'asn','backend_resolver_prefix':'bgp_prefix',
-                 'backend_resolver_org':'org','backend_resolver_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols'})
-        .select('ipv4','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'backend_resolver_org':'org','backend_resolver_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols'})
+        .select('ipv4','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').flatten().drop_nulls().unique(),
         ),
         tfwd_closed_backend_resolver
         .rename({'backend_resolver':'ipv4','backend_resolver_asn':'asn','backend_resolver_prefix':'bgp_prefix',
-                 'backend_resolver_org':'org','backend_resolver_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols'})
-        .select('ipv4','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'backend_resolver_org':'org','backend_resolver_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols'})
+        .select('ipv4','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').flatten().drop_nulls().unique(),
         ),
         tfwd_closed_replying_resolver
         .rename({'replying_ip':'ipv4','replying_ip_asn':'asn','replying_ip_prefix':'bgp_prefix',
-                 'replying_ip_org':'org','replying_ip_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols'})
-        .select('ipv4','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'replying_ip_org':'org','replying_ip_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols'})
+        .select('ipv4','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').flatten().drop_nulls().unique(),
         ),
         ],how="vertical")
@@ -369,8 +366,8 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
             "is_public": row["is_public"],
             "protocol": _supported_protocols_to_text(row["supported_protocols"]),
             "supported_protocols": _supported_protocols_to_text(row["supported_protocols"]),
-            "last_observation_ts": _normalize_timestamp(row["last_observation_ts"]),
-            "source": "odns-api",
+            "last_update_ts": _normalize_timestamp(row["last_update_ts"]),
+            "source": ODNS_SOURCE,
         }
         for row in combined.to_dicts()
     ]
@@ -389,28 +386,28 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
     all_forwarder = pl.concat([(
         public_forwarder
         .rename({'queried_ip':'ipv4','queried_ip_asn':'asn','queried_ip_prefix':'bgp_prefix',
-                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols','backend_resolver':'resolver'})
-        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols','backend_resolver':'resolver'})
+        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4', 'resolver')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').flatten().drop_nulls().unique(),
         )
-        .with_columns(pl.lit("Recursive").alias("type"))
+        .with_columns(pl.lit("recursive").alias("type"))
         .with_columns(pl.lit(True).alias("is_public"))
     ),(
         closed_forwarder
         .rename({'replying_ip':'ipv4','replying_ip_asn':'asn','replying_ip_prefix':'bgp_prefix',
-                 'replying_ip_org':'org','replying_ip_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols','backend_resolver':'resolver'})
-        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'replying_ip_org':'org','replying_ip_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols','backend_resolver':'resolver'})
+        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4', 'resolver')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').flatten().drop_nulls().unique(),
         )
-        .with_columns(pl.lit("Recursive").alias("type"))
+        .with_columns(pl.lit("recursive").alias("type"))
         .with_columns(pl.lit(False).alias("is_public"))
     )],how='vertical')
 
@@ -420,15 +417,15 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
     tfwd_only = (
         tfwd_only
         .rename({'queried_ip':'ipv4','queried_ip_asn':'asn','queried_ip_prefix':'bgp_prefix',
-                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_observation_ts','protocol':'supported_protocols','replying_ip':'resolver'})
-        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_observation_ts','supported_protocols')
+                 'queried_ip_org':'org','queried_ip_country':'country','timestamp_request':'last_update_ts','protocol':'supported_protocols','replying_ip':'resolver'})
+        .select('ipv4','resolver','asn','bgp_prefix','org','country','last_update_ts','supported_protocols')
         .group_by('ipv4', 'resolver')
         .agg(
             pl.col('asn', 'bgp_prefix', 'org', 'country').first(),
-            pl.col('last_observation_ts').max(),
+            pl.col('last_update_ts').max(),
             pl.col('supported_protocols').explode().drop_nulls().unique(),
         )
-        .with_columns(pl.lit("Transparent").alias("type"))
+        .with_columns(pl.lit("transparent").alias("type"))
         .with_columns(pl.lit(True).alias("is_public"))
     )
     
@@ -497,13 +494,13 @@ def load_odns_data(odns: Path, anycast: Path) -> tuple[list[dict[str, object]], 
             "org": row["org"],
             "org_short": row["org_short"],
             "country": normalize_country(row["country"]),
-            "last_observation_ts": _normalize_timestamp(row["last_observation_ts"]),
-            "source": "odns-api",
+            "last_update_ts": _normalize_timestamp(row["last_update_ts"]),
+            "source": ODNS_SOURCE,
         }
         for row in forwarder_rows
     ]
 
-    return resolver_rows, forwarder_rows, tfwd_anycast_country, tfwd_anycast_asn
+    return resolver_rows, forwarder_rows, tfwd_anycast_country, tfwd_anycast_asn, tfwd_spoofing
 
 
 def load_odns_api(
@@ -525,11 +522,18 @@ def load_odns_api(
         raise FileNotFoundError(f"No Manycast parquet file found in {data_dir}")
 
     logger.info("Loading ODNS {protocol} parquet from {path}", protocol=protocol, path=odns_path)
-    resolver_rows, forwarder_rows, anycast_country_backend_rows, anycast_asn_backend_rows = load_odns_data(odns_path,anycast_path)
+    (
+        resolver_rows,
+        forwarder_rows,
+        anycast_country_backend_rows,
+        anycast_asn_backend_rows,
+        spoofing_rows,
+    ) = load_odns_data(odns_path, anycast_path)
     logger.info("Loaded {count} resolver rows from ODNS parquet", count=len(resolver_rows))
     logger.info("Loaded {count} forwarder rows from ODNS parquet", count=len(forwarder_rows))
     logger.info("Loaded {count} anycast country backend rows from ODNS parquet", count=anycast_country_backend_rows.height)
     logger.info("Loaded {count} anycast ASN backend rows from ODNS parquet", count=anycast_asn_backend_rows.height)
+    logger.info("Loaded {count} spoofing rows from ODNS parquet", count=spoofing_rows.height)
     
     resolver_path = DATA_DIR / "resolver.pq"
     forwarder_path = DATA_DIR / "forwarder.pq"
@@ -537,7 +541,6 @@ def load_odns_api(
     _write_parquet(forwarder_rows, forwarder_path, columns=FORWARDER_OUTPUT_COLUMNS)
 
     logger.info("Importing resolver data from {path}", path=resolver_path)
-    import_resolvers = _load_resolver_importer()
     import_resolvers(
         resolver_path,
         mapping=RESOLVER_IMPORT_MAPPING,
@@ -547,7 +550,6 @@ def load_odns_api(
     )
 
     logger.info("Importing forwarder data from {path}", path=forwarder_path)
-    import_forwarders = _load_forwarder_importer()
     import_forwarders(
         forwarder_path,
         mapping=FORWARDER_IMPORT_MAPPING,
@@ -556,10 +558,12 @@ def load_odns_api(
     )
     
     logger.info("Importing anycast backend data from ODNS parquet")
-    import_anycast = _load_anycast_importer()
     import_anycast(
         country_backend_rows=anycast_country_backend_rows,
         asn_backend_rows=anycast_asn_backend_rows,
-        source="odns-api",
+        source=ODNS_SOURCE,
         dry_run=False,
     )
+
+    logger.info("Importing spoofing data from ODNS parquet")
+    import_spoofing(spoofing_rows, modules="spoofing,asn,country", source=ODNS_SOURCE, dry_run=False)

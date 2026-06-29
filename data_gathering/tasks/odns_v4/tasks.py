@@ -66,7 +66,7 @@ def refresh() -> dict[str, int]:
     refreshed = 0
     for protocol in protocols:
         logger.info("ODNS {}: refresh started", protocol)
-        #_fetch_odns()
+        _fetch_odns()
         _fetch_manycast(protocol)
         _load_odns(protocol)
         refreshed += 1
