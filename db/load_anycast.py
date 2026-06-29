@@ -41,7 +41,7 @@ ANYCAST_COLUMNS = [
     "source",
 ]
 
-RESOLVER_LOOKUP_SQL = "SELECT id, ipv4, ipv6 FROM resolver"
+RESOLVER_LOOKUP_SQL = "SELECT id, ip::text FROM resolver"
 GEOCODE_USER_AGENT = "dns-resilience-observatory-anycast-loader"
 GEOCODE_MIN_DELAY_SECONDS = 1
 GEOCODE_TIMEOUT_SECONDS = 5
@@ -228,13 +228,10 @@ def load_resolver_lookup() -> dict[str, int]:
     with psycopg.connect(dsn) as connection:
         with connection.cursor() as cursor:
             cursor.execute(RESOLVER_LOOKUP_SQL)
-            for resolver_id, ipv4, ipv6 in cursor.fetchall():
-                ipv4_key = _normalize_key(ipv4)
-                ipv6_key = _normalize_key(ipv6)
-                if ipv4_key:
-                    lookup[ipv4_key] = resolver_id
-                if ipv6_key:
-                    lookup[ipv6_key] = resolver_id
+            for resolver_id, ip in cursor.fetchall():
+                ip_key = _normalize_key(ip)
+                if ip_key:
+                    lookup[ip_key] = resolver_id
     return lookup
 
 
@@ -335,22 +332,96 @@ def insert_rows(rows: list[dict[str, object]]) -> None:
             )
             counters = dict(cursor.fetchall())
 
-        # Assign instance_id in Python
-        for row in tqdm(rows, desc="Assigning instance_id", unit="row"):
+        ipv4s = sorted({row.get("ipv4") for row in rows if row.get("ipv4")})
+        ipv6s = sorted({row.get("ipv6") for row in rows if row.get("ipv6")})
+        existing = _fetch_existing_anycast(connection, ipv4s, ipv6s)
+
+        update_rows: list[dict[str, object]] = []
+        insert_rows_list: list[dict[str, object]] = []
+        for row in rows:
+            anycast_key = None
+            ipv4 = row.get("ipv4")
+            ipv6 = row.get("ipv6")
+            if ipv4:
+                anycast_key = existing.get(ipv4)
+            if anycast_key is None and ipv6:
+                anycast_key = existing.get(ipv6)
+
+            if anycast_key is None:
+                insert_rows_list.append(row)
+            else:
+                resolver_id, instance_id = anycast_key
+                row["resolver_id"] = resolver_id
+                row["instance_id"] = instance_id
+                update_rows.append(row)
+
+        # Assign instance_id for new rows only
+        for row in tqdm(insert_rows_list, desc="Assigning instance_id", unit="row"):
             if row.get("instance_id") is None:
                 rid = row["resolver_id"]
                 counters[rid] = counters.get(rid, 0) + 1
                 row["instance_id"] = counters[rid]
 
-        placeholders = ", ".join([f"%({col})s" for col in ANYCAST_COLUMNS])
-        columns = ", ".join(ANYCAST_COLUMNS)
-        query = f"INSERT INTO anycast ({columns}) VALUES ({placeholders})"
-        print(query)
+        update_query = (
+            "UPDATE anycast SET "
+            "ipv4 = COALESCE(%(ipv4)s, ipv4), "
+            "ipv6 = COALESCE(%(ipv6)s, ipv6), "
+            "netmask = COALESCE(%(netmask)s, netmask), "
+            "asn = COALESCE(%(asn)s, asn), "
+            "bgp_prefix = COALESCE(%(bgp_prefix)s, bgp_prefix), "
+            "org = COALESCE(%(org)s, org), "
+            "org_short = COALESCE(%(org_short)s, org_short), "
+            "country = COALESCE(%(country)s, country), "
+            "city = COALESCE(%(city)s, city), "
+            "latitude = COALESCE(%(latitude)s, latitude), "
+            "longitude = COALESCE(%(longitude)s, longitude), "
+            "last_observation_ts = GREATEST(last_observation_ts, COALESCE(%(last_observation_ts)s, last_observation_ts)), "
+            "source = COALESCE(%(source)s, source) "
+            "WHERE resolver_id = %(resolver_id)s AND instance_id = %(instance_id)s"
+        )
+
+        insert_placeholders = ", ".join([f"%({col})s" for col in ANYCAST_COLUMNS])
+        insert_columns = ", ".join(ANYCAST_COLUMNS)
+        insert_query = f"INSERT INTO anycast ({insert_columns}) VALUES ({insert_placeholders})"
+
         with connection.cursor() as cursor:
-            cursor.executemany(query, rows)
+            if update_rows:
+                cursor.executemany(update_query, update_rows)
+            if insert_rows_list:
+                cursor.executemany(insert_query, insert_rows_list)
         connection.commit()
 
-    logger.info("Inserted {count} anycast rows", count=len(rows))
+    logger.info(
+        "Applied anycast updates: {updated} updated, {inserted} inserted",
+        updated=len(update_rows),
+        inserted=len(insert_rows_list),
+    )
+
+
+def _fetch_existing_anycast(
+    connection: psycopg.Connection,
+    ipv4s: list[str],
+    ipv6s: list[str],
+) -> dict[str, tuple[int, int]]:
+    if not ipv4s and not ipv6s:
+        return {}
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT resolver_id, instance_id, ipv4, ipv6 FROM anycast "
+            "WHERE (ipv4 = ANY(%s) AND ipv4 IS NOT NULL) "
+            "OR (ipv6 = ANY(%s) AND ipv6 IS NOT NULL)",
+            (ipv4s, ipv6s),
+        )
+        rows = cursor.fetchall()
+
+    lookup: dict[str, tuple[int, int]] = {}
+    for resolver_id, instance_id, ipv4, ipv6 in rows:
+        if ipv4:
+            lookup[ipv4] = (resolver_id, instance_id)
+        if ipv6:
+            lookup[ipv6] = (resolver_id, instance_id)
+    return lookup
 
 def main() -> None:
     load_dotenv()
