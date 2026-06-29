@@ -1,3 +1,4 @@
+data/
 db/pgadmin_vol/
 db/postgresdb_vol/
 *.pyc

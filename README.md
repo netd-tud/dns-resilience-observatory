@@ -113,6 +113,31 @@ docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.<topic>.<task_name>
 ```
 
+### Webpage Resolver URLs
+
+The webpage resolver task imports resolver lists configured in
+`data_gathering/tasks/webpage_resolver/webpage_resolver.conf`.
+
+To add a URL, add one entry under `[urls]` and a matching `[url.<name>]` section:
+
+```ini
+[urls]
+example_resolvers = https://example.org/resolvers.txt
+
+[url.example_resolvers]
+headers = resolver_ip
+no_header = true
+mapping = ip:resolver_ip
+modules = resolver
+separator = ,
+source = webpage-resolver.example
+description = Resolver list from example.org.
+verified = false
+force = false
+```
+
+The task name is `data_gathering.tasks.webpage_resolver.refresh`.
+
 ## API
 
 Note: both ASGI and WSGI entry points are included; use ASGI for async/WebSockets and WSGI for traditional sync deployments.
@@ -132,7 +157,7 @@ Note: both ASGI and WSGI entry points are included; use ASGI for async/WebSocket
 
 ### Current Database Schema
 
-The database is normalized around four currently populated data areas. Schema creation lives in
+The database is normalized around the currently populated data areas. Schema creation lives in
 [db/apply_schema.py](db/apply_schema.py).
 
 | Area | Purpose | Associated tables |
@@ -141,6 +166,7 @@ The database is normalized around four currently populated data areas. Schema cr
 | `resolver` | Recursive resolver IPs and resolver attributes. The base table maps IPs to stable resolver IDs; attributes are stored in one-purpose tables. | `resolver_id`, `resolver`, `resolver_asn`, `resolver_prefix`, `resolver_org`, `resolver_location`, `resolver_protocol`, `resolver_endpoint`, `resolver_domain`, `resolver_verification` |
 | `forwarder` | Forwarder IPs, forwarder attributes, and upstream relationships to resolvers or other forwarders. | `forwarder_id`, `forwarder`, `forwarder_asn`, `forwarder_prefix`, `forwarder_org`, `forwarder_location`, `forwarder_protocol`, `forwarder_endpoint`, `forwarder_domain`, `forwarder_resolver_upstream`, `forwarder_forwarder_upstream` |
 | `anycast` | Anycast prefixes, prefix ASNs, and backend evidence by country and ASN. | `anycast`, `anycast_asn`, `anycast_country_backend`, `anycast_asn_backend` |
+| `spoofing` | CAIDA Spoofer prefix-level spoofing results with ASN and country attributes. | `spoofing`, `spoofing_asn`, `spoofing_country` |
 
 All source-bearing tables use `source` as a foreign key to `data_source(source)`. Add source
 metadata before running imports that reference that source.
@@ -169,6 +195,13 @@ VALUES
         'https://odns-data.netd.cs.tu-dresden.de/api/v2/ODNSQuery/GetDnsEntries',
         'https://odns-data.netd.cs.tu-dresden.de/',
         TRUE
+    ),
+    (
+        'caida-spoofer',
+        'https://www.caida.org/projects/spoofer/',
+        'https://api.spoofer.caida.org/sessions',
+        'https://www.caida.org/projects/spoofer/',
+        FALSE
     )
 ON CONFLICT (source)
 DO UPDATE SET
@@ -184,6 +217,7 @@ DO UPDATE SET
 | --- | --- | --- | --- |
 | `odns-api` | Resolver, forwarder, and ODNS-derived anycast backend evidence | `https://odns-data.netd.cs.tu-dresden.de/api/v2/ODNSQuery/GetDnsEntries` | Yes |
 | `manycast` | Anycast prefix, ASN, and country-location evidence | `https://manycast.net/api/v1/export/IPv4-latest.parquet` | No |
+| `caida-spoofer` | Prefix-level spoofing observations | `https://api.spoofer.caida.org/sessions` | No |
 
 ## Importers
 
@@ -197,7 +231,7 @@ timestamp for the import run. The anycast importer also fills `last_update_ts` w
 
 #### Resolver Importer
 
-Script: [data_gathering/import/resolver/import_resolvers.py](data_gathering/import/resolver/import_resolvers.py)
+Script: [data_gathering/imports/resolver/import_resolvers.py](data_gathering/imports/resolver/import_resolvers.py)
 
 Modules and required mapped fields:
 
@@ -215,7 +249,7 @@ Modules and required mapped fields:
 Example:
 
 ```bash
-python data_gathering/import/resolver/import_resolvers.py data/resolvers.pq \
+python data_gathering/imports/resolver/import_resolvers.py data/resolvers.pq \
     --mapping "ip:resolver_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol" \
     --modules "resolver,asn,prefix,location,protocol" \
     --no-dry-run
@@ -223,7 +257,7 @@ python data_gathering/import/resolver/import_resolvers.py data/resolvers.pq \
 
 #### Forwarder Importer
 
-Script: [data_gathering/import/forwarder/import_forwarders.py](data_gathering/import/forwarder/import_forwarders.py)
+Script: [data_gathering/imports/forwarder/import_forwarders.py](data_gathering/imports/forwarder/import_forwarders.py)
 
 Modules and required mapped fields:
 
@@ -242,7 +276,7 @@ Modules and required mapped fields:
 Example:
 
 ```bash
-python data_gathering/import/forwarder/import_forwarders.py data/forwarders.pq \
+python data_gathering/imports/forwarder/import_forwarders.py data/forwarders.pq \
     --mapping "ip:forwarder_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol,upstream_ip:resolver_ip" \
     --modules "forwarder,asn,prefix,location,protocol,upstream" \
     --no-dry-run
@@ -250,7 +284,7 @@ python data_gathering/import/forwarder/import_forwarders.py data/forwarders.pq \
 
 #### Anycast Importer
 
-Script: [data_gathering/import/anycast/import_anycast.py](data_gathering/import/anycast/import_anycast.py)
+Script: [data_gathering/imports/anycast/import_anycast.py](data_gathering/imports/anycast/import_anycast.py)
 
 Modules and required mapped fields:
 
@@ -268,7 +302,7 @@ incoming count is higher.
 Example:
 
 ```bash
-python data_gathering/import/anycast/import_anycast.py data/manycast.pq \
+python data_gathering/imports/anycast/import_anycast.py data/manycast.pq \
     --mapping "prefix:prefix,backing_prefix:backing_prefix,partial:partial,asn:ASN,country:locations" \
     --modules "anycast,asn,location" \
     --source manycast \

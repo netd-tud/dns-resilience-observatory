@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DNS Resilience Observatory</title>
+    <link rel="icon" href="/static/frontend/assets/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet" />
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+    />
+    <link rel="stylesheet" href="/static/frontend/styles.css" />
+</head>
+<body>
+    <header class="menubar">
+        <div class="menu-inner">
+            <a class="menu-brand" href="/">
+                <img class="menu-logo" src="/static/frontend/assets/kindns-logo.png" alt="KINDNS" />
+            </a>
+            <nav class="menu-nav">
+                <a class="menu-link" href="/">Start</a>
+                <a class="menu-link" href="/resolver.html">Resolver Dashboard</a>
+                <a class="menu-link" href="/search.html">Search</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="banner" id="page-banner">
+        <div class="banner-inner">
+            <h1>DNS Resolver Search</h1>
+        </div>
+    </section>
+
+    <main class="content">
+        <section class="dashboard-view" id="dashboard-view">
+            <section class="query-card">
+                <div class="query-grid">
+                    <input id="query-input" type="text" placeholder="Query by resolver IP, prefix, ASN, or country" />
+                    <button id="search-button" type="button">Run Lookup</button>
+                </div>
+                <div class="examples">
+                    <span class="chip" data-value="1.1.1.1">1.1.1.1</span>
+                    <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
+                    <span class="chip" data-value="AS3320">AS3320</span>
+                    <span class="chip" data-value="DE">DE</span>
+                </div>
+                <div class="status" id="status">
+                    <span class="status-dot"></span>
+                    <span id="status-text">Ready for a lookup.</span>
+                </div>
+            </section>
+
+            <section class="results" id="results">
+                <div class="empty">Results appear here after a lookup.</div>
+            </section>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <section class="footer-tiles">
+            <div class="footer-tile logo-tile">
+                <h3>Powered by</h3>
+                <div class="logo-grid">
+                    <a href="https://tu-dresden.de/ing/informatik/sya/netd" target="_blank" rel="noopener">
+                        <img src="/static/frontend/assets/logos/tud-logo-long.svg" alt="TU Dresden logo" />
+                    </a>
+                    <a class="pulse-logo-card" href="https://pulse.internetsociety.org" target="_blank" rel="noopener">
+                        <img src="/static/frontend/assets/logo-pulse-wordmark-light.4324f5fb1785.png" alt="Internet Society Pulse logo" />
+                    </a>
+                    <a href="https://www.icann.org" target="_blank" rel="noopener">
+                        <img src="/static/frontend/assets/logos/icann-logo-tagline-en_680x152.webp" alt="ICANN logo" />
+                    </a>
+                </div>
+                <h3>External data providers</h3>
+                <div class="logo-grid">
+                    <a href="https://net.in.tum.de/" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/tum-logo.png" alt="TU Munich logo" />
+                    </a>
+                    <a href="https://www.routeviews.org/" target="_blank" rel="noopener">
+                        <img class="logo-medium" src="/static/frontend/assets/logos/external/routeviews.svg" alt="Routeviews logo" />
+                    </a>
+                    <a href="https://atlas.ripe.net/" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/external/ripeatlas.svg" alt="RIPE Atlas logo" />
+                    </a>
+                    <a href="https://www.caida.org/" target="_blank" rel="noopener">
+                        <img class="logo-medium" src="/static/frontend/assets/logos/external/caida.png" alt="CAIDA logo" />
+                    </a>
+                    <a href="https://www.maxmind.com/" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/external/maxmind-logo.svg" alt="MaxMind logo" />
+                    </a>
+                    <a href="https://ipinfo.io/" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/external/ipinfo.svg" alt="IPinfo logo" />
+                    </a>
+                    <a href="https://labs.apnic.net" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/external/apnic-labs-logo-short.png" alt="APNIC Labs logo" />
+                    </a>
+                    <a href="https://manycast.net" target="_blank" rel="noopener">
+                        <img class="logo-small" src="/static/frontend/assets/logos/external/manycast-tmp.png" alt="Manycast logo" />
+                    </a>
+                </div>
+            </div>
+        </section>
+    </footer>
+
+    <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+    ></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script>
+        const apiBaseUrl = "{{ api_base_url }}".replace(/\/+$/, "");
+        const input = document.getElementById("query-input");
+        const results = document.getElementById("results");
+        const statusText = document.getElementById("status-text");
+        const statusDot = document.querySelector(".status-dot");
+        const dashboardSummary = document.getElementById("dashboard-summary");
+
+        function loadPlotly() {
+            if (window.Plotly) {
+                return Promise.resolve();
+            }
+            return new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "https://unpkg.com/plotly.js-dist-min@2.32.0/plotly.min.js";
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error("Failed to load Plotly"));
+                document.head.appendChild(script);
+            });
+        }
+
+        function setStatus(message, tone) {
+            statusText.textContent = message;
+            if (tone === "ok") {
+                statusDot.style.background = "var(--kindns-teal)";
+            } else if (tone === "error") {
+                statusDot.style.background = "var(--danger)";
+            } else {
+                statusDot.style.background = "var(--kindns-blue)";
+            }
+        }
+
+        function formatNumber(value) {
+            return Number(value || 0).toLocaleString();
+        }
+
+        function formatPercent(value) {
+            return `${Number(value || 0).toFixed(1)}%`;
+        }
+
+        function metricCard(label, value, subvalue = "") {
+            return `
+                <div class="metric-card">
+                    <div class="metric-label">${label}</div>
+                    <div class="metric-value">${value}</div>
+                    ${subvalue ? `<div class="metric-subvalue">${subvalue}</div>` : ""}
+                </div>
+            `;
+        }
+
+        function gauge(label, value, detail) {
+            const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+            return `
+                <div class="gauge-card">
+                    <div class="gauge" style="--value: ${safeValue};">
+                        <div class="gauge-inner">
+                            <span>${safeValue.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="metric-label">${label}</div>
+                        <div class="metric-subvalue">${detail}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function ratioBar(label, firstLabel, firstValue, secondLabel, secondValue) {
+            const total = Math.max(Number(firstValue || 0) + Number(secondValue || 0), 1);
+            const firstPc = (Number(firstValue || 0) / total) * 100;
+            const secondPc = 100 - firstPc;
+            return `
+                <div class="bar-card">
+                    <div class="metric-label">${label}</div>
+                    <div class="stacked-bar">
+                        <span class="bar-primary" style="width: ${firstPc}%"></span>
+                        <span class="bar-secondary" style="width: ${secondPc}%"></span>
+                    </div>
+                    <div class="bar-legend">
+                        <span>${firstLabel}: ${formatNumber(firstValue)}</span>
+                        <span>${secondLabel}: ${formatNumber(secondValue)}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function summaryCard(label, total, firstLabel, firstValue, secondLabel, secondValue, percent, detail = "") {
+            const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));
+            const barTotal = Math.max(Number(firstValue || 0) + Number(secondValue || 0), 1);
+            const firstPc = (Number(firstValue || 0) / barTotal) * 100;
+            const secondPc = 100 - firstPc;
+            return `
+                <div class="summary-card">
+                    <div class="summary-card-main">
+                        <div>
+                            <div class="metric-label">${label}</div>
+                            <div class="metric-value">${formatNumber(total)}</div>
+                            <div class="metric-subvalue">${detail || "&nbsp;"}</div>
+                        </div>
+                        <div class="gauge" style="--value: ${safePercent};">
+                            <div class="gauge-inner"><span>${safePercent.toFixed(1)}%</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="stacked-bar">
+                            <span class="bar-primary" style="width: ${firstPc}%"></span>
+                            <span class="bar-secondary" style="width: ${secondPc}%"></span>
+                        </div>
+                        <div class="bar-legend">
+                            <span>${firstLabel}: ${formatNumber(firstValue)}</span>
+                            <span>${secondLabel}: ${formatNumber(secondValue)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function spoofingCard(total, blocked, received, unknown) {
+            const safeTotal = Math.max(Number(total || 0), 0);
+            const safeBlocked = Math.max(Number(blocked || 0), 0);
+            const safeReceived = Math.max(Number(received || 0), 0);
+            const safeUnknown = Math.max(Number(unknown || 0), 0);
+            const barTotal = Math.max(safeTotal, safeBlocked + safeReceived + safeUnknown, 1);
+            const blockedPc = (safeBlocked / barTotal) * 100;
+            const receivedPc = (safeReceived / barTotal) * 100;
+            const unknownPc = Math.max(0, 100 - blockedPc - receivedPc);
+            const warning = safeReceived > 0
+                ? `<div class="spoofing-warning">Warning: some networks seem to allow spoofing.</div>`
+                : `<div class="metric-subvalue">&nbsp;</div>`;
+            return `
+                <div class="summary-card spoofing-card">
+                    <div>
+                        <div class="metric-label">Spoofing</div>
+                        <div class="metric-value">${formatNumber(safeTotal)}</div>
+                        ${warning}
+                    </div>
+                    <div>
+                        <div class="stacked-bar spoofing-stacked-bar">
+                            <span class="spoofing-blocked" style="width: ${blockedPc}%"></span>
+                            <span class="spoofing-received" style="width: ${receivedPc}%"></span>
+                            <span class="spoofing-unknown" style="width: ${unknownPc}%"></span>
+                        </div>
+                        <div class="bar-legend spoofing-legend">
+                            <span>Blocked: ${formatNumber(safeBlocked)}</span>
+                            <span>Received: ${formatNumber(safeReceived)}</span>
+                            <span>Unknown: ${formatNumber(safeUnknown)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDashboard(summary) {
+            const mapId = `resolver-country-map-${Date.now()}`;
+            const latest = summary.last_observation_ts ? new Date(summary.last_observation_ts).toLocaleString() : "-";
+            dashboardSummary.innerHTML = `
+                <div class="dashboard-section resolver-overview">
+                    <div class="section-header">
+                        <div>
+                            <h2>Resolvers</h2>
+                            <p>Last observation: ${latest}</p>
+                        </div>
+                    </div>
+                    <div class="metric-grid">
+                        ${metricCard("Total resolvers", formatNumber(summary.resolver_count), `${formatNumber(summary.resolver_ipv4_count)} IPv4 / ${formatNumber(summary.resolver_ipv6_count)} IPv6`)}
+                        ${metricCard("Anycast supported", formatNumber(summary.resolver_anycast_count), `${formatPercent((summary.resolver_anycast_count / Math.max(summary.resolver_count || 0, 1)) * 100)} of resolvers`)}
+                        ${gauge("Public resolvers", summary.resolver_public_pc, `${formatNumber(summary.resolver_public_count)} public / ${formatNumber(summary.resolver_closed_count)} closed`)}
+                        ${ratioBar("Address family", "IPv4", summary.resolver_ipv4_count, "IPv6", summary.resolver_ipv6_count)}
+                        ${ratioBar("Resolver access", "Public", summary.resolver_public_count, "Closed", summary.resolver_closed_count)}
+                        ${ratioBar("Anycast coverage", "Anycast", summary.resolver_anycast_count, "Other", Math.max((summary.resolver_count || 0) - (summary.resolver_anycast_count || 0), 0))}
+                        ${metricCard("Resolver TCP", formatNumber(summary.resolver_tcp_count), "Resolvers supporting TCP")}
+                        ${metricCard("Resolver UDP", formatNumber(summary.resolver_udp_count), "Resolvers supporting UDP")}
+                        ${metricCard("Resolver TCP + UDP", formatNumber(summary.resolver_tcp_udp_count), "Resolvers supporting both")}
+                    </div>
+                    <div class="map-wrap dashboard-map" id="${mapId}"></div>
+                </div>
+
+                <div class="dashboard-section split-section">
+                    <div>
+                        <h2>Forwarders</h2>
+                        <div class="metric-grid compact">
+                            ${metricCard("Total forwarders", formatNumber(summary.forwarder_count), `${formatNumber(summary.forwarder_public_count)} public / ${formatNumber(summary.forwarder_non_public_count)} non-public`)}
+                            ${gauge("Public forwarders", summary.forwarder_public_pc, "Share of forwarders marked public")}
+                            ${ratioBar("Forwarder access", "Public", summary.forwarder_public_count, "Non-public", summary.forwarder_non_public_count)}
+                            ${metricCard("Forwarder TCP", formatNumber(summary.forwarder_tcp_count), "Forwarders supporting TCP")}
+                            ${metricCard("Forwarder UDP", formatNumber(summary.forwarder_udp_count), "Forwarders supporting UDP")}
+                            ${metricCard("Forwarder TCP + UDP", formatNumber(summary.forwarder_tcp_udp_count), "Forwarders supporting both")}
+                        </div>
+                    </div>
+                    <div>
+                        <h2>DNSSEC Country Validation</h2>
+                        <div class="metric-grid compact">
+                            ${metricCard("Countries measured", formatNumber(summary.dnssec_country_count))}
+                            ${gauge("Validating", summary.dnssec_validating_avg, "Average country-level validation")}
+                            ${gauge("Partial validating", summary.dnssec_partial_validating_avg, "Average country-level partial validation")}
+                        </div>
+                    </div>
+                </div>
+            `;
+            initResolverCountryMap(mapId, summary.resolver_countries || []);
+        }
+
+        async function loadDashboard() {
+            setStatus("Loading dashboard metrics...", "pending");
+            dashboardSummary.innerHTML = `<div class="empty">Loading dashboard... <span class="spinner" aria-hidden="true"></span></div>`;
+            try {
+                const response = await fetch(`${apiBaseUrl}/api/dns-resilience/dashboard/summary`);
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || payload.error || "Dashboard request failed.");
+                }
+                renderDashboard(payload);
+                setStatus("Dashboard metrics loaded.", "ok");
+            } catch (error) {
+                setStatus("Dashboard metrics failed to load.", "error");
+                dashboardSummary.innerHTML = `<div class="empty">${error}</div>`;
+            }
+        }
+
+        function detectQueryType(value) {
+            const trimmed = value.trim();
+            if (!trimmed) {
+                return null;
+            }
+            if (trimmed.includes("/")) {
+                return "prefix";
+            }
+            const upper = trimmed.toUpperCase();
+            if (upper.startsWith("AS") || /^\d{1,10}$/.test(trimmed)) {
+                return "asn";
+            }
+            if (/^[A-Za-z]{2,3}$/.test(trimmed)) {
+                return "country";
+            }
+            if (trimmed.includes(":")) {
+                return "resolver";
+            }
+            if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(trimmed)) {
+                return "resolver";
+            }
+            return null;
+        }
+
+        function buildEndpoint(query, type) {
+            if (type === "resolver") {
+                return `${apiBaseUrl}/api/dns-resilience/resolver/${encodeURIComponent(query)}`;
+            }
+            if (type === "prefix") {
+                const encoded = encodeURIComponent(encodeURIComponent(query));
+                return `${apiBaseUrl}/api/dns-resilience/prefix/${encoded}`;
+            }
+            if (type === "asn") {
+                const normalized = query.toUpperCase().startsWith("AS") ? query.toUpperCase() : `AS${query}`;
+                return `${apiBaseUrl}/api/dns-resilience/ASN/${encodeURIComponent(normalized)}`;
+            }
+            if (type === "country") {
+                return `${apiBaseUrl}/api/dns-resilience/country/${encodeURIComponent(query.toUpperCase())}`;
+            }
+            return null;
+        }
+
+        function resolverRows(resolvers) {
+            return resolvers.map((resolver) => {
+                const ip = resolver.ip || "-";
+                const ipCell = ip === "-"
+                    ? "-"
+                    : `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(ip)}">${ip}</a>`;
+                return `
+                    <tr>
+                        <td>${ipCell}</td>
+                        <td>${resolver.asn ?? "-"}</td>
+                        <td>${resolver.bgp_prefix ?? "-"}</td>
+                        <td>${resolver.country ?? "-"}</td>
+                        <td>${resolver.org_short || resolver.org || "-"}</td>
+                        <td>${resolver.is_public ? "yes" : "no"}</td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        function renderResolverTable(container, resolvers, page = 1) {
+            const pageSize = 10;
+            const totalPages = Math.max(1, Math.ceil(resolvers.length / pageSize));
+            const currentPage = Math.min(Math.max(page, 1), totalPages);
+            const start = (currentPage - 1) * pageSize;
+            const pageRows = resolvers.slice(start, start + pageSize);
+            container.innerHTML = `
+                <div class="resolver-table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Resolver</th>
+                                <th>ASN</th>
+                                <th>Prefix</th>
+                                <th>Country</th>
+                                <th>Organization</th>
+                                <th>Public</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${resolverRows(pageRows)}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pager">
+                    <button class="pager-button" type="button" data-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>Previous</button>
+                    <span>Page ${currentPage} of ${totalPages}</span>
+                    <button class="pager-button" type="button" data-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>Next</button>
+                </div>
+            `;
+            container.querySelectorAll(".pager-button").forEach((button) => {
+                button.addEventListener("click", () => {
+                    renderResolverTable(container, resolvers, Number(button.dataset.page));
+                });
+            });
+        }
+
+        function renderResults(payload) {
+            if (payload && (payload.target_type === "country" || payload.target_type === "asn" || payload.target_type === "prefix")) {
+                const isAsn = payload.target_type === "asn";
+                const isPrefix = payload.target_type === "prefix";
+                const resolverTotal = Number(payload.country_resolver_count ?? payload.total ?? 0);
+                const publicCount = Number(payload.public_resolver_count || 0);
+                const closedCount = Number(payload.closed_resolver_count || 0);
+                const anycastCount = Number(payload.anycast_resolver_count || 0);
+                const publicPc = resolverTotal ? (publicCount / resolverTotal) * 100 : 0;
+                const anycastOther = Math.max(resolverTotal - anycastCount, 0);
+                const anycastPc = Number(payload.anycast_resolver_pc ?? (resolverTotal ? (anycastCount / resolverTotal) * 100 : 0));
+                const forwarderTotal = Number(payload.forwarder_count || 0);
+                const recursiveForwarders = Number(payload.recursive_forwarder_count || 0);
+                const transparentForwarders = Number(payload.transparent_forwarder_count || 0);
+                const recursiveForwarderPc = forwarderTotal ? (recursiveForwarders / forwarderTotal) * 100 : 0;
+                const qminMeasured = Number(payload.qmin_measured_count || 0);
+                const qminYes = Number(payload.qmin_yes_count || 0);
+                const qminNo = Number(payload.qmin_no_count || 0);
+                const qminUnstable = Number(payload.qmin_unstable_count || 0);
+                const qminUnknown = Math.max(resolverTotal - qminMeasured, 0);
+                const qminYesPc = Number(payload.qmin_yes_pc ?? (qminMeasured ? (qminYes / qminMeasured) * 100 : 0));
+                const qminNoPc = Number(payload.qmin_no_pc ?? (qminMeasured ? (qminNo / qminMeasured) * 100 : 0));
+                const spoofingTotal = Number(payload.spoofing_prefix_count || 0);
+                const spoofingAllow = Number(payload.spoofing_allow_count || 0);
+                const spoofingBlocked = Number(payload.spoofing_blocked_count || 0);
+                const spoofingUnknown = Number(payload.spoofing_unknown_count || 0);
+                const dnssecValidating = payload.dnssec_validating_pc ?? 0;
+                const dnssecPartial = payload.dnssec_partial_validating_pc ?? 0;
+                const scopeLabel = isPrefix ? "Prefix overview" : (isAsn ? "AS overview" : "Country overview");
+                const dnssecScope = isPrefix ? "Prefix-level" : (isAsn ? "AS-level" : "Country-level");
+                results.innerHTML = `
+                    <div class="dashboard-section">
+                        <div class="section-header">
+                            <div>
+                                <h2>${payload.target}</h2>
+                                <p>${scopeLabel}</p>
+                            </div>
+                        </div>
+                        <div class="metric-grid">
+                            ${summaryCard("Resolvers", resolverTotal, "Public", publicCount, "Non-public", closedCount, publicPc)}
+                            ${summaryCard("Forwarders", forwarderTotal, "Recursive", recursiveForwarders, "Transparent", transparentForwarders, recursiveForwarderPc)}
+                            ${summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, `${formatNumber(payload.anycast_prefix_count || 0)} prefixes / ${formatNumber(payload.anycast_country_instance_count || 0)} country instances / ${formatNumber(payload.anycast_asn_instance_count || 0)} ASN instances`)}
+                            ${summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`)}
+                            ${spoofingCard(spoofingTotal, spoofingBlocked, spoofingAllow, spoofingUnknown)}
+                            ${gauge("DNSSEC validating", dnssecValidating, payload.dnssec_validating_pc == null ? `No ${dnssecScope.toLowerCase()} DNSSEC data` : `${dnssecScope} validation`)}
+                            ${gauge("DNSSEC partial validating", dnssecPartial, payload.dnssec_partial_validating_pc == null ? `No ${dnssecScope.toLowerCase()} DNSSEC data` : `${dnssecScope} partial validation`)}
+                        </div>
+                    </div>
+                    ${isPrefix && payload.resolvers && payload.resolvers.length
+                        ? `<div class="dashboard-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Resolvers in prefix</h2>
+                                    <p>${formatNumber(payload.resolvers.length)} shown, 10 per page</p>
+                                </div>
+                            </div>
+                            <div id="prefix-resolver-table"></div>
+                        </div>`
+                        : ""}
+                `;
+                if (isPrefix && payload.resolvers && payload.resolvers.length) {
+                    renderResolverTable(document.getElementById("prefix-resolver-table"), payload.resolvers);
+                }
+                return;
+            }
+
+            if (!payload || !payload.resolvers || payload.resolvers.length === 0) {
+                results.innerHTML = `<div class="empty">No resolvers found for ${payload ? payload.target : "this query"}.</div>`;
+                return;
+            }
+
+            results.innerHTML = `
+                <div class="empty">${payload.total} resolvers matched</div>
+                <div id="generic-resolver-table"></div>
+            `;
+            renderResolverTable(document.getElementById("generic-resolver-table"), payload.resolvers);
+        }
+
+        function renderResolverSummary(summary) {
+            const checkmark = (value) => {
+                if (value === null || value === undefined) {
+                    return "-";
+                }
+                const cls = value ? "checkmark" : "checkmark off";
+                const symbol = value ? "✓" : "✕";
+                return `<span class="${cls}">${symbol}</span>`;
+            };
+
+            const forwarderCounts = summary.forwarder_countries || [];
+            const forwarderAsnCounts = summary.forwarder_asns || [];
+            const forwarderGraphId = `forwarder-${Date.now()}`;
+            const forwarderToggleId = `forwarder-toggle-${Date.now()}`;
+            const forwarderCountryTabId = `forwarder-country-tab-${Date.now()}`;
+            const forwarderAsnTabId = `forwarder-asn-tab-${Date.now()}`;
+
+            const mapId = `map-${Date.now()}`;
+            const lastObservation = summary.last_observation_ts
+                ? new Date(summary.last_observation_ts).toLocaleString()
+                : "-";
+            const valueOrUnknown = (value) => {
+                if (value === null || value === undefined || value === "") {
+                    return `<span class="unknown-badge">UNKNOWN</span>`;
+                }
+                return value;
+            };
+            const metadataCard = (label, value) => `
+                <div class="metadata-card">
+                    <div class="metadata-label">${label}</div>
+                    <div class="metadata-value">${valueOrUnknown(value)}</div>
+                </div>
+            `;
+            const qminState = summary.resolver_qmin || null;
+            const qminYes = qminState === "yes" ? 1 : 0;
+            const qminNo = qminState === "no" ? 1 : 0;
+            const qminUnstable = qminState === "unstable" ? 1 : 0;
+            const alternativeIps = summary.alternative_resolver_ips || [];
+            const alternativeIpHtml = alternativeIps.length
+                ? `<div class="ip-list">${alternativeIps.map((ip) => `<span class="ip-chip">${ip}</span>`).join("")}</div>`
+                : `<span class="unknown-badge">UNKNOWN</span>`;
+            const protocols = (summary.resolver_supported_protocols || "")
+                .split(",")
+                .map((protocol) => protocol.trim())
+                .filter(Boolean);
+            const protocolHtml = protocols.length
+                ? `<div class="ip-list">${protocols.map((protocol) => `<span class="ip-chip">${protocol}</span>`).join("")}</div>`
+                : null;
+            const spoofingTotal = Number(summary.spoofing_prefix_count || 0);
+            const spoofingAllow = Number(summary.spoofing_allow_count || 0);
+            const spoofingBlocked = Number(summary.spoofing_blocked_count || 0);
+            const spoofingUnknown = Number(summary.spoofing_unknown_count || 0);
+            const spoofingPrefixes = summary.spoofing_allow_prefixes || [];
+            const spoofingPrefixHtml = spoofingPrefixes.length
+                ? `<div class="ip-list">${spoofingPrefixes.map((entry) => `<span class="ip-chip">${entry.prefix}</span>`).join("")}</div>`
+                : null;
+
+            results.innerHTML = `
+                <div class="tile">
+                    <div class="tile-header">
+                        <div class="tile-title resolver-lookup-title">${summary.resolver_ip}</div>
+                    </div>
+                    <div class="resolver-summary-grid">
+                        ${summaryCard("Resolver", summary.resolver_found ? 1 : 0, "IPv4", summary.resolver_supports_ipv4 ? 1 : 0, "IPv6", summary.resolver_supports_ipv6 ? 1 : 0, summary.resolver_found ? 100 : 0, `Public: ${summary.resolver_is_public === null || summary.resolver_is_public === undefined ? "unknown" : (summary.resolver_is_public ? "yes" : "no")}`)}
+                        ${summaryCard("Forwarders", summary.forwarder_entry_count ?? 0, "ASNs", summary.forwarder_asn_count ?? 0, "Countries", summary.forwarder_country_count ?? 0, summary.forwarder_entry_count ? 100 : 0, `Open forwarder IPs relaying to ${summary.resolver_ip}`)}
+                        ${summaryCard("Anycast", summary.anycast_found ? (summary.anycast_site_count ?? 0) : 0, "Countries", summary.anycast_country_count ?? 0, "ASNs", summary.anycast_asn_count ?? 0, summary.anycast_found ? 100 : 0, summary.anycast_found ? "Anycast sites" : "No anycast sites")}
+                        ${summaryCard("QMIN", qminState ? 1 : 0, "Yes", qminYes, "No", qminNo, qminState === "yes" ? 100 : 0, qminState ? `${qminState}${qminUnstable ? " / unstable" : ""}` : "UNKNOWN")}
+                        ${spoofingCard(spoofingTotal, spoofingBlocked, spoofingAllow, spoofingUnknown)}
+                    </div>
+                    <div class="metadata-grid">
+                        ${metadataCard("ASN", summary.resolver_asn == null ? null : `AS${summary.resolver_asn}`)}
+                        ${metadataCard("Country", summary.resolver_country)}
+                        ${metadataCard("BGP prefix", summary.resolver_prefix)}
+                        ${metadataCard("Domain", summary.resolver_domain)}
+                        ${metadataCard("Organization", summary.resolver_org)}
+                        ${metadataCard("Supported protocols", protocolHtml)}
+                        ${metadataCard("Last observed", lastObservation === "-" ? null : lastObservation)}
+                        <div class="metadata-card">
+                            <div class="metadata-label">Alternative resolver IPs</div>
+                            <div class="metadata-value">${alternativeIpHtml}</div>
+                        </div>
+                        ${metadataCard("IPv4 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv4) : null)}
+                        ${metadataCard("IPv6 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv6) : null)}
+                        ${metadataCard("QMIN", qminState)}
+                        ${metadataCard("Spoofing prefixes allowing spoofing", spoofingPrefixHtml)}
+                    </div>
+                    <div class="map-wrap" id="${mapId}"></div>
+                    <div class="graph-section">
+                        <div class="tile-header">
+                            <div class="tile-title">Open forwarders that relay queries to ${summary.resolver_ip}</div>
+                            <div>
+                                <button class="graph-toggle" id="${forwarderCountryTabId}" type="button">Countries</button>
+                                <button class="graph-toggle" id="${forwarderAsnTabId}" type="button">ASNs</button>
+                                <button class="graph-toggle" id="${forwarderToggleId}" type="button">Show all</button>
+                            </div>
+                        </div>
+                        <div class="graph-wrap" id="${forwarderGraphId}"></div>
+                    </div>
+                </div>
+            `;
+
+            if (summary.anycast_countries && summary.anycast_countries.length > 0) {
+                initMap(mapId, summary.anycast_countries);
+            } else {
+                const mapEl = document.getElementById(mapId);
+                if (mapEl) {
+                    mapEl.innerHTML = `<div class="empty" style="padding: 16px;">No anycast country data to display.</div>`;
+                }
+            }
+
+            const graphEl = document.getElementById(forwarderGraphId);
+            const toggleEl = document.getElementById(forwarderToggleId);
+            const countryTabEl = document.getElementById(forwarderCountryTabId);
+            const asnTabEl = document.getElementById(forwarderAsnTabId);
+            if (graphEl) {
+                if (!forwarderCounts.length && !forwarderAsnCounts.length) {
+                    graphEl.innerHTML = `<div class="empty">No forwarder relay data to display.</div>`;
+                } else {
+                    let mode = "country";
+                    let showAll = false;
+
+                    const renderForwarderGraph = () => {
+                        const sourceRows = mode === "asn" ? forwarderAsnCounts : forwarderCounts;
+                        const sorted = [...sourceRows].sort((a, b) => b.count - a.count);
+                        const entries = showAll ? sorted : sorted.slice(0, 10);
+                        const totalCount = entries.reduce((sum, entry) => sum + (entry.count || 0), 0);
+
+                        if (!entries.length) {
+                            graphEl.innerHTML = `<div class="empty">No forwarder ${mode === "asn" ? "ASN" : "country"} data to display.</div>`;
+                            return;
+                        }
+
+                        const labels = [
+                            ...entries.map((entry) => mode === "asn" ? `AS${entry.asn}` : (entry.country || "-")),
+                            `${summary.resolver_ip} (${totalCount})`,
+                        ];
+                        const resolverIndex = labels.length - 1;
+
+                        const sources = entries.map((_, index) => index);
+                        const targets = entries.map(() => resolverIndex);
+                        const values = entries.map((entry) => entry.count || 0);
+
+                        const data = [
+                            {
+                                type: "sankey",
+                                orientation: "h",
+                                node: {
+                                    label: labels,
+                                    pad: 18,
+                                    thickness: 20,
+                                    color: [
+                                        ...entries.map(() => "#d9f2ef"),
+                                        "#5BC2C2",
+                                    ],
+                                    line: {
+                                        color: [
+                                            ...entries.map(() => "#5BC2C2"),
+                                            "#4aa9a9",
+                                        ],
+                                        width: 1,
+                                    },
+                                },
+                                link: {
+                                    source: sources,
+                                    target: targets,
+                                    value: values,
+                                    color: values.map(() => "rgba(91, 194, 194, 0.35)"),
+                                },
+                            },
+                        ];
+
+                        const layout = {
+                            margin: { l: 20, r: 20, t: 10, b: 10 },
+                            paper_bgcolor: "#ffffff",
+                            plot_bgcolor: "#ffffff",
+                            font: {
+                                family: "Open Sans, Arial, Helvetica, sans-serif",
+                                color: "#1f2430",
+                                size: 12,
+                            },
+                        };
+
+                        loadPlotly()
+                            .then(() => {
+                                Plotly.react(graphEl, data, layout, {
+                                    displayModeBar: true,
+                                    responsive: true,
+                                    scrollZoom: true,
+                                });
+                            })
+                            .catch(() => {
+                                graphEl.innerHTML = `<div class="empty">Plotly failed to load.</div>`;
+                            });
+                    };
+
+                    renderForwarderGraph();
+
+                    if (countryTabEl) {
+                        countryTabEl.addEventListener("click", () => {
+                            mode = "country";
+                            renderForwarderGraph();
+                        });
+                    }
+                    if (asnTabEl) {
+                        asnTabEl.addEventListener("click", () => {
+                            mode = "asn";
+                            renderForwarderGraph();
+                        });
+                    }
+                    if (toggleEl) {
+                        toggleEl.textContent = "Show all";
+                        toggleEl.addEventListener("click", () => {
+                            showAll = !showAll;
+                            toggleEl.textContent = showAll ? "Show top 10" : "Show all";
+                            renderForwarderGraph();
+                        });
+                    }
+                }
+            }
+        }
+
+        function initMap(containerId, countries) {
+            const map = L.map(containerId, {
+                zoomControl: true,
+                scrollWheelZoom: true,
+            }).setView([20, 0], 2);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+            }).addTo(map);
+
+            countries.forEach((country) => {
+                if (country.latitude == null || country.longitude == null) {
+                    return;
+                }
+                const siteCount = Math.max(0, Number(country.site_count) || 0);
+                const radius = Math.min(18, 4 + Math.log10(siteCount + 1) * 6);
+                L.circleMarker([country.latitude, country.longitude], {
+                    radius,
+                    fillColor: "#5BC2C2",
+                    color: "#5BC2C2",
+                    weight: 1,
+                    fillOpacity: 0.7,
+                })
+                    .addTo(map)
+                    .bindTooltip(`${country.country}: ${country.site_count} site(s)`);
+            });
+        }
+
+        function initResolverCountryMap(containerId, countries) {
+            const map = L.map(containerId, {
+                zoomControl: true,
+                scrollWheelZoom: true,
+            }).setView([20, 0], 2);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+            }).addTo(map);
+
+            countries.forEach((country) => {
+                if (country.latitude == null || country.longitude == null) {
+                    return;
+                }
+                const count = Math.max(0, Number(country.count) || 0);
+                const publicCount = Number(country.public_count) || 0;
+                const publicPc = count ? (publicCount / count) * 100 : 0;
+                const radius = Math.min(28, 5 + Math.log10(count + 1) * 7);
+                L.circleMarker([country.latitude, country.longitude], {
+                    radius,
+                    fillColor: publicPc >= 50 ? "#2fb48f" : "#f0a34a",
+                    color: "#26364f",
+                    weight: 1,
+                    fillOpacity: 0.72,
+                })
+                    .addTo(map)
+                    .bindTooltip(`${country.country}: ${formatNumber(count)} resolvers, ${publicPc.toFixed(1)}% public`);
+            });
+        }
+
+        async function runLookup() {
+            const query = input.value.trim();
+            const type = detectQueryType(query);
+            if (!type) {
+                setStatus("Enter an IP, prefix, ASN, or country code.", "error");
+                return;
+            }
+
+            setStatus("Fetching resolver data...", "pending");
+            results.innerHTML = `<div class="empty">Loading... <span class="spinner" aria-hidden="true"></span></div>`;
+
+            try {
+                if (type === "resolver") {
+                    const summaryEndpoint = `${apiBaseUrl}/api/dns-resilience/resolver/${encodeURIComponent(query)}/summary`;
+                    const summaryResponse = await fetch(summaryEndpoint);
+                    const summaryPayload = await summaryResponse.json();
+                    if (!summaryResponse.ok) {
+                        setStatus(summaryPayload.detail || summaryPayload.error || "Lookup failed.", "error");
+                        results.innerHTML = `<div class="empty">${summaryPayload.detail || summaryPayload.error || "Request failed."}</div>`;
+                        return;
+                    }
+                    setStatus("Resolver summary loaded.", "ok");
+                    renderResolverSummary(summaryPayload);
+                    return;
+                }
+
+                const endpoint = buildEndpoint(query, type);
+                if (!endpoint) {
+                    setStatus("Unable to build endpoint for query.", "error");
+                    return;
+                }
+                const response = await fetch(endpoint);
+                const payload = await response.json();
+                if (!response.ok) {
+                    setStatus(payload.detail || payload.error || "Lookup failed.", "error");
+                    results.innerHTML = `<div class="empty">${payload.detail || payload.error || "Request failed."}</div>`;
+                    return;
+                }
+                setStatus(`Found ${payload.total} resolver(s).`, "ok");
+                renderResults(payload);
+            } catch (error) {
+                setStatus("Network error while reaching the API.", "error");
+                results.innerHTML = `<div class="empty">${error}</div>`;
+            }
+        }
+
+        document.getElementById("search-button").addEventListener("click", runLookup);
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                runLookup();
+            }
+        });
+
+        document.querySelectorAll(".chip").forEach((chip) => {
+            chip.addEventListener("click", () => {
+                input.value = chip.dataset.value;
+                runLookup();
+            });
+        });
+
+        const initialQuery = new URLSearchParams(window.location.search).get("q");
+        if (initialQuery) {
+            input.value = initialQuery;
+            runLookup();
+        }
+    </script>
+</body>
+</html>
