@@ -1,0 +1,28 @@
+[tasks.py]
+logging_tag = odns_v4_tasks
+odns_protocols = v4
+data_dir = /data
+
+[fetch_odns_api_data.py]
+logging_tag = fetch_odns_api_data.py
+odns_api_url = https://odns-data.netd.cs.tu-dresden.de/api/v2/ODNSQuery/GetDnsEntries
+odns_api_auth_token = <ODNS_API_AUTH_TOKEN>
+odns_per_page = 100000
+data_dir = /data
+
+[fetch_manycast_data_v4.py]
+logging_tag = fetch_manycast_data_v4.py
+manycast_api_url = https://manycast.net/api/v1/export/IPv4-latest.parquet
+data_dir = /data
+
+[load_odns_api.py]
+logging_tag = load_odns_api.py
+odns_default_protocol = udp
+data_dir = /data
+
+[odns_json_to_parquet.py]
+logging_tag = odns_json_to_parquet.py
+data_dir = /data
+
+[script_config.py]
+logging_tag = script_config.py

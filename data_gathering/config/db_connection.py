@@ -9,11 +9,11 @@ import psycopg
 from dotenv import load_dotenv
 
 
-CONFIG_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 def _build_dsn() -> str:
-    load_dotenv(CONFIG_DIR / ".env")
+    load_dotenv(BASE_DIR / ".env")
 
     db_url = os.getenv("DATABASE_URL")
     if db_url:

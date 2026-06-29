@@ -1,0 +1,17 @@
+[tasks.py]
+logging_tag = caida_spoofer_tasks
+data_dir = ./data
+
+[update_spoofing_table.py]
+logging_tag = update_spoofing_table.py
+data_dir = ./data/spoofer
+caida_fetch_last_days = 60
+
+[fetch_caida_spoofer_api_data.py]
+logging_tag = fetch_caida_spoofer_api_data.py
+caida_spoofer_api_url = https://api.spoofer.caida.org/sessions
+caida_items_per_page = 10000
+data_dir = ./data
+
+[script_config.py]
+logging_tag = caida_spoofer_script_config.py
