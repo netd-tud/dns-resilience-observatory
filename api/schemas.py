@@ -47,6 +47,7 @@ class DNSResilienceResponse(Schema):
     spoofing_last_update_ts: Optional[datetime] = Field(None, description="Latest spoofing observation timestamp")
     dnssec_validating_pc: Optional[float] = Field(None, description="Country DNSSEC validating percentage")
     dnssec_partial_validating_pc: Optional[float] = Field(None, description="Country DNSSEC partial validating percentage")
+    dnssec_last_update_ts: Optional[datetime] = Field(None, description="Latest country DNSSEC observation timestamp")
 
 
 class AnycastCountrySummary(Schema):
