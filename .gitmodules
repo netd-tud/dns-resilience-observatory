@@ -1,0 +1,3 @@
+[submodule "measurements/tools/zdns"]
+	path = measurements/tools/zdns
+	url = https://github.com/zmap/zdns.git
