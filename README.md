@@ -30,6 +30,8 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | `data_gathering/tasks/manycast/manycast.conf` | Manycast task logging and data directory settings. |
 | `data_gathering/tasks/odns_v4/odns_v4.conf` | ODNS API, Manycast fetch, and ODNS import settings. |
 | `data_gathering/tasks/webpage_resolver/webpage_resolver.conf` | Web resolver URL import definitions and column mappings. |
+| `measurements/tasks/verify_resolvers/verify_resolvers.conf` | Active resolver verification measurement using ZDNS. |
+| `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf` | Resolver metainformation measurement using ZDNS PTR, SVCB, A, AAAA, and HTTPS lookups. |
 | `db/data-sources.conf` | Source metadata inserted into the `data_source` table. |
 
 Copy examples before running services:
@@ -37,12 +39,16 @@ Copy examples before running services:
 ```bash
 cp .env.example .env
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
+cp measurements/tasks/verify_resolvers/verify_resolvers.conf.example measurements/tasks/verify_resolvers/verify_resolvers.conf
+cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.example measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf
 ```
 
 Replace these placeholders for setup:
 
 - `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, `DJANGO_SUPERUSER_PASSWORD`, and adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose overrides container-internal values such as frontend `API_BASE_URL=http://api:8000`.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
+- `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
+- `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf`: adjust `modules` (`svcb`, `svcb,ptr,a`, or `svcb,ptr,a,aaaa,https`), `threads`, resolver filters, and `recursive_name_servers` if needed.
 - Task `.conf` files: adjust `data_dir`, worker counts, fetch windows, URLs, and source mappings only if your deployment differs from the defaults.
 - `db/data-sources.conf`: update source metadata only when adding or changing data sources.
 
@@ -168,6 +174,49 @@ Scheduling is controlled via environment variables on the data-gathering service
 - `CELERY_SCHEDULED_TASK`: task name to run on a schedule (default: `data_gathering.tasks.dispatch.run_all`).
 - `CELERY_SCHEDULE_CRON`: cron expression with 5 fields (default: `0 0 * * *`).
 - `DATA_GATHERING_TASKS`: optional comma-separated allowlist of task names.
+
+## Measurements
+
+Resolver lists can be exported from the database:
+
+```bash
+python -m measurements.scripts.get_resolvers --verified true --is-public true --country DE --format txt
+```
+
+The first measurement task verifies resolvers by running a ZDNS `A` lookup for the configured domain through each resolver:
+
+```bash
+docker compose up -d --build measurements
+docker compose exec measurements \
+	celery -A measurements.celery_app call measurements.tasks.verify_resolvers.run --queue measurements
+```
+
+Resolver metainformation measurement:
+
+```bash
+docker compose exec measurements \
+	celery -A measurements.celery_app call measurements.tasks.metainformation_resolvers.run --queue measurements
+```
+
+### Build ZDNS
+
+The resolver verification task expects a ZDNS binary at `measurements/tools/zdns/zdns`.
+The `measurements` Docker image builds this binary automatically. For local runs without Docker, install Go first, then compile the submodule:
+
+```bash
+git submodule update --init --recursive
+cd measurements/tools/zdns
+make
+cd ../../..
+```
+
+Check the binary:
+
+```bash
+measurements/tools/zdns/zdns --help
+```
+
+## Data Gathering Manual Runs
 
 1. Start the services:
 
