@@ -2,7 +2,6 @@
 psycopg[binary]
 python-dotenv
 loguru
-pandas
 polars
 pyarrow
 tqdm

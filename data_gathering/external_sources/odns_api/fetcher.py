@@ -5,11 +5,11 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-import pandas as pd
+import polars as pl
 from tqdm import tqdm
 
 from data_gathering.external_sources.config import external_data_dir, external_interim_dir
-from data_gathering.tasks.odns_v4.odns_json_to_parquet import convert_odns_json_to_parquet
+from data_gathering.tasks.odns_v4.odns_json_to_parquet import convert_odns_json_to_parquet, normalize_entries
 from data_gathering.tasks.odns_v4.script_config import (
     required_config_int,
     required_config_value,
@@ -52,15 +52,15 @@ def _post_json(payload: dict[str, Any], api_key: str, api_url: str) -> dict[str,
     return json.loads(body)
 
 
-def _normalize_spoofing_frame(entries: list[dict[str, Any]]) -> pd.DataFrame:
-    frame = pd.json_normalize(entries)
+def _normalize_spoofing_frame(entries: list[dict[str, Any]]) -> pl.DataFrame:
+    frame = normalize_entries(entries)
     if "scan_date" in frame.columns:
-        frame["scan_date"] = pd.to_datetime(frame["scan_date"], errors="coerce")
+        frame = frame.with_columns(pl.col("scan_date").cast(pl.Utf8, strict=False).str.to_datetime(strict=False, time_zone="UTC"))
     if "queried_ip_asn" in frame.columns:
-        frame["queried_ip_asn"] = pd.to_numeric(frame["queried_ip_asn"], errors="coerce").astype("UInt32")
+        frame = frame.with_columns(pl.col("queried_ip_asn").cast(pl.Float64, strict=False).round(0).cast(pl.UInt32, strict=False))
     for column in ["resolver_type", "queried_ip_country", "queried_ip_prefix"]:
         if column in frame.columns:
-            frame[column] = frame[column].astype("category")
+            frame = frame.with_columns(pl.col(column).cast(pl.Utf8, strict=False))
     return frame
 
 
@@ -203,9 +203,9 @@ def _fetch_spoofing(
     timestamp = dt.datetime.now(dt.UTC).date().isoformat()
     parquet_path = output_dir / f"odns_spoofing_{timestamp}.pq"
     frame = _normalize_spoofing_frame(entries)
-    frame.to_parquet(parquet_path, index=False)
-    logger.info("ODNS spoofing data: wrote {} entries to {}", len(frame), parquet_path)
-    return parquet_path, len(frame)
+    frame.write_parquet(parquet_path)
+    logger.info("ODNS spoofing data: wrote {} entries to {}", frame.height, parquet_path)
+    return parquet_path, frame.height
 
 
 def fetch(
