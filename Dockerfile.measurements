@@ -1,0 +1,34 @@
+FROM golang:1.25 AS zdns-builder
+
+WORKDIR /src/zdns
+COPY measurements/tools/zdns /src/zdns
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make \
+    && mkdir -p /out \
+    && cp zdns /out/zdns
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    grep -vE '^[[:space:]]*(-e[[:space:]]+\.)[[:space:]]*$|^[[:space:]]*\.[[:space:]]*$' /app/requirements.txt > /tmp/requirements-deps.txt \
+    && pip install -r /tmp/requirements-deps.txt
+
+COPY . /app
+COPY --from=zdns-builder /out/zdns /app/measurements/tools/zdns/zdns
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-deps -e /app
+
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["celery", "-A", "measurements.celery_app", "worker", "--loglevel=info", "-Q", "measurements"]
