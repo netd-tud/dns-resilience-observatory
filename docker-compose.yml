@@ -138,6 +138,39 @@ services:
     networks:
       - api_db_network
 
+  measurements:
+    build:
+      context: .
+      dockerfile: Dockerfile.measurements
+    container_name: dns-resilience-observatory-measurements
+    restart: unless-stopped
+    command: celery -A measurements.celery_app worker --loglevel=info -Q measurements
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+    environment:
+      RUN_STARTUP_TASKS: "false"
+      RUN_APPLY_SCHEMA: "false"
+      RUN_MIGRATIONS: "false"
+      RUN_CREATE_SUPERUSER: "false"
+      DATABASE_ENGINE: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_TIMEZONE: UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - api_db_network
+
   frontend:
     build:
       context: .
