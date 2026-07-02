@@ -31,4 +31,8 @@ if [ "$run_startup_tasks" = "true" ]; then
     fi
 fi
 
+if [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ -z "$1" ]; }; then
+    set -- python manage.py runserver 0.0.0.0:8000
+fi
+
 exec "$@"
