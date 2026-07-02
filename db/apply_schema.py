@@ -68,17 +68,18 @@ STATEMENTS = [
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS resolver_protocol (
+    CREATE TABLE IF NOT EXISTS resolver_service (
         resolver_id BIGINT NOT NULL REFERENCES resolver_id(id) ON DELETE CASCADE,
         protocol TEXT NOT NULL,
+        port INTEGER NOT NULL CHECK (port > 0 AND port <= 65535),
         last_update_ts TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (resolver_id, protocol)
+        PRIMARY KEY (resolver_id, protocol, port)
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS resolver_endpoint (
+    CREATE TABLE IF NOT EXISTS resolver_dohpath (
         resolver_id BIGINT PRIMARY KEY REFERENCES resolver_id(id) ON DELETE CASCADE,
-        endpoint TEXT NOT NULL,
+        dohpath TEXT NOT NULL,
         last_update_ts TIMESTAMPTZ NOT NULL
     );
     """,
@@ -337,6 +338,10 @@ STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS resolver_protocol_protocol_idx
         ON resolver_protocol (protocol);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS resolver_port_protocol_port_idx
+        ON resolver_port (protocol, port);
     """,
     """
     CREATE INDEX IF NOT EXISTS resolver_endpoint_endpoint_idx
