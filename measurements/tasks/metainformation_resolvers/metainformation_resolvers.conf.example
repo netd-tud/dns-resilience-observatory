@@ -1,0 +1,22 @@
+[metainformation_resolvers]
+resolver_information_domain = _dns.resolver.arpa
+modules = svcb
+zdns_path = measurements/tools/zdns/zdns
+output_dir = data/measurements/metainformation_resolvers
+resolver_input_file = resolvers.txt
+ptr_domains_file = ptr_domains.txt
+svcb_output_file = resolver_arpa_svcb.jsonl
+ptr_output_file = resolver_ptr.jsonl
+a_output_file = ptr_domains_a.jsonl
+aaaa_output_file = ptr_domains_aaaa.jsonl
+https_output_file = ptr_domains_https.jsonl
+threads = 300
+network_timeout = 8
+retries = 1
+no_recycle_sockets = true
+limit =
+verified =
+is_public =
+source =
+country =
+asn =

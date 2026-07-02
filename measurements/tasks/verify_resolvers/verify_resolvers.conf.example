@@ -1,0 +1,16 @@
+[verify_resolver]
+domain = google.com
+zdns_path = measurements/tools/zdns/zdns
+output_dir = data/measurements/verify_resolver
+input_file = resolvers.txt
+output_file = verify_resolver.jsonl
+threads = 100
+network_timeout = 8
+retries = 1
+no_recycle_sockets = true
+limit =
+verified =
+is_public =
+source =
+country =
+asn =

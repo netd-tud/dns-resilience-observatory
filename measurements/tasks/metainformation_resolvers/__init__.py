@@ -1,0 +1,1 @@
+"""Resolver metainformation measurement task."""

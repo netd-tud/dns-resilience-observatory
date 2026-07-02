@@ -1,0 +1,1 @@
+"""Resolver verification measurement task."""
