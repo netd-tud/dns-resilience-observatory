@@ -109,7 +109,7 @@ services:
       context: .
     container_name: dns-resilience-observatory-data-gathering-run-on-start
     restart: "no"
-    command: celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.run_all
+    command: celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.bootstrap_if_empty
     env_file:
       - .env
     volumes:
