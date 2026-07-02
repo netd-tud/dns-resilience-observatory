@@ -1,12 +1,15 @@
 {% extends "frontend/base.html" %}
 
-{% block content %}
+{% block banner %}
     <section class="banner">
         <div class="banner-inner">
+            <img class="banner-logo" src="/static/frontend/assets/dns_resilience_observatory_transparent_white_connections.png" alt="DNS Resilience Observatory" />
             <h1>DNS Resilience Observatory</h1>
         </div>
     </section>
+{% endblock %}
 
+{% block content %}
     <main class="content home-content">
         <section class="start-view">
             <a class="start-tile kindns-tile" href="http://103.154.234.110:8888">

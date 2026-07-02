@@ -56,13 +56,6 @@ a {
     min-width: 0;
 }
 
-.menu-logo {
-    width: 166px;
-    height: 36px;
-    object-fit: contain;
-    flex: 0 0 auto;
-}
-
 .menu-link {
     font-weight: 600;
     color: var(--body-blue);
@@ -86,7 +79,19 @@ a {
 .banner-inner {
     max-width: 1600px;
     margin: 0 auto;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 24px;
+    text-align: left;
+}
+
+.banner-logo {
+    width: min(340px, 34vw);
+    height: auto;
+    max-height: 110px;
+    object-fit: contain;
+    flex: 0 0 auto;
 }
 
 .banner h1 {
@@ -94,6 +99,7 @@ a {
     font-size: clamp(1.8rem, 3.2vw, 2.8rem);
     color: #ffffff;
     font-weight: 700;
+    line-height: 1.1;
 }
 
 .content {
@@ -841,6 +847,16 @@ button:hover {
         flex-direction: column;
         gap: 8px;
         align-items: flex-start;
+    }
+
+    .banner-inner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .banner-logo {
+        width: min(300px, 86vw);
+        max-height: 96px;
     }
 
     .start-view,

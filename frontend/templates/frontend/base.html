@@ -15,7 +15,7 @@
     <header class="menubar">
         <div class="menu-inner">
             <a class="menu-brand" href="/">
-                <img class="menu-logo" src="/static/frontend/assets/kindns-logo.png" alt="KINDNS" />
+                <span class="menu-title">DNS Resilience Observatory</span>
             </a>
             <nav class="menu-nav">
                 <a class="menu-link" href="/">Start</a>
@@ -24,6 +24,8 @@
             </nav>
         </div>
     </header>
+
+    {% block banner %}{% endblock %}
 
     {% block content %}{% endblock %}
 
