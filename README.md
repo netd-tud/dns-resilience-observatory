@@ -81,6 +81,8 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
+This installs the project-compatible `celery` command. If `celery` is not found, activate the virtual environment or run it through `.venv/bin/celery`; do not install or use the system package with `apt`, because distro Celery packages can pull incompatible dependencies.
+
 Activate the environment in later shells with:
 
 ```bash
@@ -218,6 +220,8 @@ measurements/tools/zdns/zdns --help
 
 ## Data Gathering Manual Runs
 
+Run these commands through Docker Compose on deployments. Do not run host `/usr/bin/celery` unless the project virtual environment is active.
+
 1. Start the services:
 
 ```bash
@@ -231,7 +235,35 @@ docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.run_all
 ```
 
-3. Manual trigger (single task example):
+3. First database bootstrap, only when the database has no imported content:
+
+```bash
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.bootstrap_if_empty
+```
+
+The one-shot `data-gathering-run-on-start` service uses this bootstrap task automatically. It skips itself once core content tables already contain rows.
+
+4. Manual first-bootstrap task order:
+
+```bash
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manycast.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.caida_spoofer.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.odns.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.apnic_dnssec.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.webpage_resolver.refresh
+```
+
+5. Manual trigger (single task example):
 
 ```bash
 docker compose run --rm data-gathering \
