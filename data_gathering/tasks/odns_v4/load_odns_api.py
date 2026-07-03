@@ -29,6 +29,7 @@ RESOLVER_OUTPUT_COLUMNS = [
     "country",
     "is_public",
     "protocol",
+    "port",
     "supported_protocols",
     "last_update_ts",
     "source",
@@ -59,7 +60,8 @@ RESOLVER_IMPORT_MAPPING = (
     "prefix:bgp_prefix,"
     "org:org,"
     "country:country,"
-    "protocol:protocol"
+    "protocol:protocol,"
+    "port:port"
 )
 RESOLVER_IMPORT_MODULES = "resolver,asn,org,prefix,location,protocol"
 FORWARDER_IMPORT_MAPPING = (
@@ -365,6 +367,7 @@ def load_odns_data(
             "country": normalize_country(row["country"]),
             "is_public": row["is_public"],
             "protocol": _supported_protocols_to_text(row["supported_protocols"]),
+            "port": 53,
             "supported_protocols": _supported_protocols_to_text(row["supported_protocols"]),
             "last_update_ts": _normalize_timestamp(row["last_update_ts"]),
             "source": ODNS_SOURCE,

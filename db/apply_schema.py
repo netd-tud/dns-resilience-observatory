@@ -336,12 +336,8 @@ STATEMENTS = [
         ON resolver (resolver_id);
     """,
     """
-    CREATE INDEX IF NOT EXISTS resolver_protocol_protocol_idx
-        ON resolver_protocol (protocol);
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS resolver_port_protocol_port_idx
-        ON resolver_port (protocol, port);
+    CREATE INDEX IF NOT EXISTS resolver_service_protocol_port_idx
+        ON resolver_service (protocol, port);
     """,
     """
     CREATE INDEX IF NOT EXISTS resolver_endpoint_endpoint_idx

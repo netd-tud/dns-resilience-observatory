@@ -57,14 +57,14 @@ class DNSResilienceService:
                 r.is_public,
                 r.last_update_ts AS last_observation_ts,
                 r.source,
-                STRING_AGG(DISTINCT rpr.protocol, ',' ORDER BY rpr.protocol) AS supported_protocols
+                STRING_AGG(DISTINCT rs.protocol, ',' ORDER BY rs.protocol) AS supported_protocols
             FROM resolver r
             LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
             LEFT JOIN resolver_prefix rp ON rp.resolver_id = r.resolver_id
             LEFT JOIN resolver_org ro ON ro.resolver_id = r.resolver_id
             LEFT JOIN resolver_domain rd ON rd.resolver_id = r.resolver_id
             LEFT JOIN resolver_location rl ON rl.resolver_id = r.resolver_id
-            LEFT JOIN resolver_protocol rpr ON rpr.resolver_id = r.resolver_id
+            LEFT JOIN resolver_service rs ON rs.resolver_id = r.resolver_id
             WHERE {where_sql}
             GROUP BY r.resolver_id, r.ip, ra.asn, rp.prefix, ro.org, rl.country, rl.city,
                      r.is_public, r.last_update_ts, r.source
@@ -784,10 +784,10 @@ class DNSResilienceService:
                 COUNT(DISTINCT resolver_id) FILTER (WHERE protocol = 'tcp')::INTEGER AS resolver_tcp_count,
                 COUNT(DISTINCT resolver_id) FILTER (WHERE protocol = 'udp')::INTEGER AS resolver_udp_count,
                 COUNT(DISTINCT resolver_id) FILTER (
-                    WHERE resolver_id IN (SELECT resolver_id FROM resolver_protocol WHERE protocol = 'tcp')
+                    WHERE resolver_id IN (SELECT resolver_id FROM resolver_service WHERE protocol = 'tcp')
                       AND protocol = 'udp'
                 )::INTEGER AS resolver_tcp_udp_count
-            FROM resolver_protocol
+            FROM resolver_service
             """
         ) or {}
         resolver_anycast = self._fetchone(

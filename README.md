@@ -83,6 +83,8 @@ uv pip install -r requirements.txt
 
 This installs the project-compatible `celery` command. If `celery` is not found, activate the virtual environment or run it through `.venv/bin/celery`; do not install or use the system package with `apt`, because distro Celery packages can pull incompatible dependencies.
 
+`requirements.txt` uses `polars[rtcompat]` instead of plain `polars` so older CPUs/systems can use Polars without failing its runtime CPU feature check. For local runs on such systems, set `POLARS_SKIP_CPU_CHECK=1` before starting Python, Celery, or Django.
+
 Activate the environment in later shells with:
 
 ```bash
@@ -231,6 +233,12 @@ docker compose up -d rabbitmq data-gathering
 2. Manual trigger (run all registered tasks):
 
 ```bash
+docker compose run --rm data-gathering python3 db/data_source.py
+```
+
+Then dispatch all registered tasks:
+
+```bash
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.run_all
 ```
@@ -238,15 +246,23 @@ docker compose run --rm data-gathering \
 3. First database bootstrap, only when the database has no imported content:
 
 ```bash
+docker compose run --rm data-gathering python3 db/data_source.py
+```
+
+Then dispatch the first-start bootstrap:
+
+```bash
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.bootstrap_if_empty
 ```
 
-The one-shot `data-gathering-run-on-start` service uses this bootstrap task automatically. It skips itself once core content tables already contain rows.
+The one-shot `data-gathering-run-on-start` service inserts data sources first and then uses this bootstrap task automatically. It skips itself once core content tables already contain rows.
 
 4. Manual first-bootstrap task order:
 
 ```bash
+docker compose run --rm data-gathering python3 db/data_source.py
+
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.manycast.refresh
 
@@ -320,7 +336,7 @@ The database is normalized around the currently populated data areas. Schema cre
 | Area | Purpose | Associated tables |
 | --- | --- | --- |
 | `data_source` | Registry of external data sources. Every imported `source` value must exist here first. | `data_source` |
-| `resolver` | Recursive resolver IPs and resolver attributes. The base table maps IPs to stable resolver IDs; attributes are stored in one-purpose tables. | `resolver_id`, `resolver`, `resolver_asn`, `resolver_prefix`, `resolver_org`, `resolver_location`, `resolver_protocol`, `resolver_endpoint`, `resolver_domain`, `resolver_verification` |
+| `resolver` | Recursive resolver IPs and resolver attributes. The base table maps IPs to stable resolver IDs; attributes are stored in one-purpose tables. | `resolver_id`, `resolver`, `resolver_asn`, `resolver_prefix`, `resolver_org`, `resolver_location`, `resolver_service`, `resolver_dohpath`, `resolver_endpoint`, `resolver_domain`, `resolver_verification` |
 | `forwarder` | Forwarder IPs, forwarder attributes, and upstream relationships to resolvers or other forwarders. | `forwarder_id`, `forwarder`, `forwarder_asn`, `forwarder_prefix`, `forwarder_org`, `forwarder_location`, `forwarder_protocol`, `forwarder_endpoint`, `forwarder_domain`, `forwarder_resolver_upstream`, `forwarder_forwarder_upstream` |
 | `anycast` | Anycast prefixes, prefix ASNs, and backend evidence by country and ASN. | `anycast`, `anycast_asn`, `anycast_country_backend`, `anycast_asn_backend` |
 | `spoofing` | CAIDA Spoofer prefix-level spoofing results with ASN and country attributes. | `spoofing`, `spoofing_asn`, `spoofing_country` |

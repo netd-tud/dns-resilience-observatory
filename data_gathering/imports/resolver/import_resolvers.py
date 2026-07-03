@@ -37,6 +37,7 @@ SUPPORTED_COLUMNS = set().union(*MODULE_REQUIRED_COLUMNS.values()) | {
     "city",
     "is_public",
     "last_update_ts",
+    "port",
     "source",
     "verified",
 }
@@ -196,6 +197,17 @@ def normalize_prefix(value: object) -> str | None:
         return None
 
 
+def normalize_port(value: object) -> int | None:
+    text = normalize_text(value)
+    if text is None:
+        return None
+    try:
+        port = int(text)
+    except ValueError:
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
 def validate_mapping(frame, mapping: dict[str, str], modules: list[str]) -> None:
     required_columns = set().union(*(MODULE_REQUIRED_COLUMNS[module] for module in modules))
     if "location" in modules:
@@ -255,6 +267,7 @@ def load_rows(
         row["country"] = normalize_country(record.get(mapping["country"])) if "country" in mapping else None
         for column in ("city", "protocol", "endpoint", "org", "domain"):
             row[column] = normalize_text(record.get(mapping[column])) if column in mapping else None
+        row["port"] = normalize_port(record.get(mapping["port"])) if "port" in mapping else 53
         rows.append(row)
 
     return frame.height, rows, invalid_ip_count
@@ -278,6 +291,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
             country TEXT,
             city TEXT,
             protocol TEXT,
+            port INTEGER,
             endpoint TEXT,
             org TEXT,
             domain TEXT
@@ -288,7 +302,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         """
         COPY resolver_import_stage (
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, endpoint, org, domain
+            city, protocol, port, endpoint, org, domain
         ) FROM STDIN
         """
     ) as copy:
@@ -305,6 +319,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
                     row["country"],
                     row["city"],
                     row["protocol"],
+                    row["port"],
                     row["endpoint"],
                     row["org"],
                     row["domain"],
@@ -316,7 +331,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         CREATE TEMP TABLE resolver_import_unique AS
         SELECT DISTINCT ON (ip)
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, endpoint, org, domain
+            city, protocol, port, endpoint, org, domain
         FROM resolver_import_stage
         ORDER BY ip, last_update_ts DESC NULLS LAST, source
         """
@@ -669,15 +684,17 @@ def import_simple_module(cursor, module: str, dry_run: bool, force: bool) -> dic
 def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]:
     cursor.execute(
         """
-        CREATE TEMP TABLE resolver_protocol_stage AS
-        SELECT DISTINCT ON (resolver_id, protocol)
+        CREATE TEMP TABLE resolver_service_stage AS
+        SELECT DISTINCT ON (resolver_id, protocol, port)
             resolver_id,
             protocol,
+            port,
             last_update_ts
         FROM (
             SELECT
                 resolver_id,
                 LOWER(TRIM(protocol_part)) AS protocol,
+                port,
                 last_update_ts
             FROM resolver_import_all
             CROSS JOIN LATERAL regexp_split_to_table(protocol, ',') AS protocol_part
@@ -685,19 +702,21 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
               AND protocol IS NOT NULL
         ) split_protocols
         WHERE protocol <> ''
-        ORDER BY resolver_id, protocol, last_update_ts DESC NULLS LAST
+          AND port BETWEEN 1 AND 65535
+        ORDER BY resolver_id, protocol, port, last_update_ts DESC NULLS LAST
         """
     )
-    cursor.execute("SELECT COUNT(*) FROM resolver_protocol_stage")
+    cursor.execute("SELECT COUNT(*) FROM resolver_service_stage")
     candidates = cursor.fetchone()[0]
 
     cursor.execute(
         """
         SELECT COUNT(*)
-        FROM resolver_protocol_stage s
-        LEFT JOIN resolver_protocol t
+        FROM resolver_service_stage s
+        LEFT JOIN resolver_service t
           ON t.resolver_id = s.resolver_id
          AND t.protocol = s.protocol
+         AND t.port = s.port
         WHERE t.resolver_id IS NULL
         """
     )
@@ -706,10 +725,11 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
     cursor.execute(
         """
         SELECT COUNT(*)
-        FROM resolver_protocol_stage s
-        JOIN resolver_protocol t
+        FROM resolver_service_stage s
+        JOIN resolver_service t
           ON t.resolver_id = s.resolver_id
          AND t.protocol = s.protocol
+         AND t.port = s.port
         WHERE %s
            OR (
                s.last_update_ts IS NOT NULL
@@ -723,25 +743,28 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
     if not dry_run:
         cursor.execute(
             """
-            INSERT INTO resolver_protocol (resolver_id, protocol, last_update_ts)
+            INSERT INTO resolver_service (resolver_id, protocol, port, last_update_ts)
             SELECT
                 s.resolver_id,
                 s.protocol,
+                s.port,
                 COALESCE(s.last_update_ts, NOW())
-            FROM resolver_protocol_stage s
-            LEFT JOIN resolver_protocol t
+            FROM resolver_service_stage s
+            LEFT JOIN resolver_service t
               ON t.resolver_id = s.resolver_id
              AND t.protocol = s.protocol
+             AND t.port = s.port
             WHERE t.resolver_id IS NULL
             """
         )
         cursor.execute(
             """
-            UPDATE resolver_protocol t
+            UPDATE resolver_service t
             SET last_update_ts = COALESCE(s.last_update_ts, NOW())
-            FROM resolver_protocol_stage s
+            FROM resolver_service_stage s
             WHERE t.resolver_id = s.resolver_id
               AND t.protocol = s.protocol
+              AND t.port = s.port
               AND (
                   %s
                   OR (
@@ -956,7 +979,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-m",
         action="append",
         required=True,
-        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated.",
+        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated. Optional protocol service column: port.",
     )
     parser.add_argument(
         "--modules",
