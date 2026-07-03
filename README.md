@@ -62,6 +62,10 @@ git rm --cached <path>
 
 For pgAdmin, remove `.tmp` suffix from `db/pgadmin/servers.json.tmp` and replace placeholder values.
 
+### Hardware Requirements
+
+Base system without active measurements: 8 CPU cores and 16 GB RAM.
+
 ### Local Python Environment
 
 For local testing, use a project-local virtual environment. This project supports `uv`; install it
