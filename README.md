@@ -336,7 +336,7 @@ The database is normalized around the currently populated data areas. Schema cre
 | Area | Purpose | Associated tables |
 | --- | --- | --- |
 | `data_source` | Registry of external data sources. Every imported `source` value must exist here first. | `data_source` |
-| `resolver` | Recursive resolver IPs and resolver attributes. The base table maps IPs to stable resolver IDs; attributes are stored in one-purpose tables. | `resolver_id`, `resolver`, `resolver_asn`, `resolver_prefix`, `resolver_org`, `resolver_location`, `resolver_service`, `resolver_dohpath`, `resolver_endpoint`, `resolver_domain`, `resolver_verification` |
+| `resolver` | Recursive resolver IPs and resolver attributes. The base table maps IPs to stable resolver IDs; attributes are stored in one-purpose tables. | `resolver_id`, `resolver`, `resolver_asn`, `resolver_prefix`, `resolver_org`, `resolver_location`, `resolver_service`, `resolver_dohpath`, `resolver_domain`, `resolver_verification` |
 | `forwarder` | Forwarder IPs, forwarder attributes, and upstream relationships to resolvers or other forwarders. | `forwarder_id`, `forwarder`, `forwarder_asn`, `forwarder_prefix`, `forwarder_org`, `forwarder_location`, `forwarder_protocol`, `forwarder_endpoint`, `forwarder_domain`, `forwarder_resolver_upstream`, `forwarder_forwarder_upstream` |
 | `anycast` | Anycast prefixes, prefix ASNs, and backend evidence by country and ASN. | `anycast`, `anycast_asn`, `anycast_country_backend`, `anycast_asn_backend` |
 | `spoofing` | CAIDA Spoofer prefix-level spoofing results with ASN and country attributes. | `spoofing`, `spoofing_asn`, `spoofing_country` |
@@ -415,7 +415,7 @@ Modules and required mapped fields:
 | `prefix` | `ip`, `prefix` | `source`, `last_update_ts` |
 | `location` | `ip`, `country` | `city`, `source`, `last_update_ts` |
 | `protocol` | `ip`, `protocol` | `source`, `last_update_ts` |
-| `endpoint` | `ip`, `endpoint` | `source`, `last_update_ts` |
+| `dohpath` | `ip`, `dohpath` | `source`, `last_update_ts` |
 | `org` | `ip`, `org` | `source`, `last_update_ts` |
 | `domain` | `ip`, `domain` | `source`, `last_update_ts` |
 

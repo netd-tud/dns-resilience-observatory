@@ -155,6 +155,17 @@ activemq-data/
 *.conf
 !*.conf.example
 .envrc
+
+# Local data exports/imports
+*.csv
+*.pq
+*.json
+*.jsonl
+*.txt
+
+# Local database/admin volumes
+pgadmin_vol/
+
 .venv
 env/
 venv/

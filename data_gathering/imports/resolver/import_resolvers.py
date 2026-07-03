@@ -22,14 +22,16 @@ sys.path.insert(0, str(OBSERVATORY_ROOT))
 from data_gathering.imports.country.country_locations import ensure_country_locations, normalize_country
 
 
-MODULES = {"resolver", "asn", "prefix", "location", "protocol", "endpoint", "org", "domain"}
+MODULE_ALIASES = {"endpoint": "dohpath"}
+COLUMN_ALIASES = {"endpoint": "dohpath"}
+MODULES = {"resolver", "asn", "prefix", "location", "protocol", "dohpath", "org", "domain", *MODULE_ALIASES}
 MODULE_REQUIRED_COLUMNS = {
     "resolver": {"ip"},
     "asn": {"ip", "asn"},
     "prefix": {"ip", "prefix"},
     "location": {"ip", "country"},
     "protocol": {"ip", "protocol"},
-    "endpoint": {"ip", "endpoint"},
+    "dohpath": {"ip", "dohpath"},
     "org": {"ip", "org"},
     "domain": {"ip", "domain"},
 }
@@ -41,7 +43,7 @@ SUPPORTED_COLUMNS = set().union(*MODULE_REQUIRED_COLUMNS.values()) | {
     "source",
     "verified",
 }
-ATTRIBUTE_MODULES = ("asn", "prefix", "location", "protocol", "endpoint", "org", "domain")
+ATTRIBUTE_MODULES = ("asn", "prefix", "location", "protocol", "dohpath", "org", "domain")
 
 
 def parse_column_mapping(mapping_values: Iterable[str] | None) -> dict[str, str]:
@@ -59,6 +61,7 @@ def parse_column_mapping(mapping_values: Iterable[str] | None) -> dict[str, str]
             if ":" not in item:
                 raise ValueError(f"Invalid mapping {item!r}; expected db_column:file_column")
             db_column, file_column = [part.strip() for part in item.split(":", 1)]
+            db_column = COLUMN_ALIASES.get(db_column, db_column)
             if db_column not in SUPPORTED_COLUMNS:
                 supported = ", ".join(sorted(SUPPORTED_COLUMNS))
                 raise ValueError(f"Unsupported mapped column {db_column!r}; supported columns: {supported}")
@@ -70,9 +73,9 @@ def parse_column_mapping(mapping_values: Iterable[str] | None) -> dict[str, str]
 
 def parse_modules(value: str | Iterable[str]) -> list[str]:
     if isinstance(value, str):
-        modules = [item.strip().lower() for item in value.split(",") if item.strip()]
+        modules = [MODULE_ALIASES.get(item.strip().lower(), item.strip().lower()) for item in value.split(",") if item.strip()]
     else:
-        modules = [item.strip().lower() for item in value if item.strip()]
+        modules = [MODULE_ALIASES.get(item.strip().lower(), item.strip().lower()) for item in value if item.strip()]
     unknown = sorted(set(modules) - MODULES)
     if unknown:
         raise ValueError(f"Unsupported modules: {', '.join(unknown)}")
@@ -265,7 +268,7 @@ def load_rows(
         row["asn"] = normalize_asn(record.get(mapping["asn"])) if "asn" in mapping else None
         row["prefix"] = normalize_prefix(record.get(mapping["prefix"])) if "prefix" in mapping else None
         row["country"] = normalize_country(record.get(mapping["country"])) if "country" in mapping else None
-        for column in ("city", "protocol", "endpoint", "org", "domain"):
+        for column in ("city", "protocol", "dohpath", "org", "domain"):
             row[column] = normalize_text(record.get(mapping[column])) if column in mapping else None
         row["port"] = normalize_port(record.get(mapping["port"])) if "port" in mapping else 53
         rows.append(row)
@@ -292,7 +295,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
             city TEXT,
             protocol TEXT,
             port INTEGER,
-            endpoint TEXT,
+            dohpath TEXT,
             org TEXT,
             domain TEXT
         ) ON COMMIT DROP
@@ -302,7 +305,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         """
         COPY resolver_import_stage (
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, port, endpoint, org, domain
+            city, protocol, port, dohpath, org, domain
         ) FROM STDIN
         """
     ) as copy:
@@ -320,7 +323,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
                     row["city"],
                     row["protocol"],
                     row["port"],
-                    row["endpoint"],
+                    row["dohpath"],
                     row["org"],
                     row["domain"],
                 ]
@@ -331,7 +334,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         CREATE TEMP TABLE resolver_import_unique AS
         SELECT DISTINCT ON (ip)
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, port, endpoint, org, domain
+            city, protocol, port, dohpath, org, domain
         FROM resolver_import_stage
         ORDER BY ip, last_update_ts DESC NULLS LAST, source
         """
@@ -555,13 +558,13 @@ MODULE_SQL = {
         "distinct": "resolver_id, prefix",
         "create": "resolver_id, prefix, last_update_ts",
     },
-    "endpoint": {
-        "table": "resolver_endpoint",
-        "column": "endpoint",
-        "condition": "endpoint IS NOT NULL",
-        "value": "endpoint",
-        "distinct": "resolver_id, endpoint",
-        "create": "resolver_id, endpoint, last_update_ts",
+    "dohpath": {
+        "table": "resolver_dohpath",
+        "column": "dohpath",
+        "condition": "dohpath IS NOT NULL",
+        "value": "dohpath",
+        "distinct": "resolver_id, dohpath",
+        "create": "resolver_id, dohpath, last_update_ts",
     },
     "org": {
         "table": "resolver_org",
@@ -984,7 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--modules",
         required=True,
-        help="Comma-separated modules from: resolver,asn,prefix,location,protocol,endpoint,org,domain",
+        help="Comma-separated modules from: resolver,asn,prefix,location,protocol,dohpath,org,domain. endpoint is accepted as an alias for dohpath.",
     )
     parser.add_argument(
         "--no-dry-run",

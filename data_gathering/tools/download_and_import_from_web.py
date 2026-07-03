@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--modules",
         required=True,
-        help="Comma-separated resolver modules: resolver,asn,prefix,location,protocol,endpoint,org,domain.",
+        help="Comma-separated resolver modules: resolver,asn,prefix,location,protocol,dohpath,org,domain.",
     )
     parser.add_argument(
         "--output-dir",

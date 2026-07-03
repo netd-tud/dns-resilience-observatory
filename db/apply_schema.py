@@ -340,8 +340,8 @@ STATEMENTS = [
         ON resolver_service (protocol, port);
     """,
     """
-    CREATE INDEX IF NOT EXISTS resolver_endpoint_endpoint_idx
-        ON resolver_endpoint (endpoint);
+    CREATE INDEX IF NOT EXISTS resolver_dohpath_dohpath_idx
+        ON resolver_dohpath (dohpath);
     """,
     """
     CREATE INDEX IF NOT EXISTS resolver_asn_asn_idx
