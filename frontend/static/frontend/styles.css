@@ -566,6 +566,12 @@ button:hover {
     gap: 6px;
 }
 
+.sibling-ip-list {
+    max-height: 154px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
 .ip-chip {
     display: inline-flex;
     align-items: center;

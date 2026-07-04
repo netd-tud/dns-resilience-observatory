@@ -23,11 +23,12 @@
         <section class="dashboard-view" id="dashboard-view">
             <section class="query-card">
                 <div class="query-grid">
-                    <input id="query-input" type="text" placeholder="Query by resolver IP, prefix, ASN, or country" />
+                    <input id="query-input" type="text" placeholder="Query by resolver IP, domain, prefix, ASN, or country" />
                     <button id="search-button" type="button">Run Lookup</button>
                 </div>
                 <div class="examples">
                     <span class="chip" data-value="1.1.1.1">1.1.1.1</span>
+                    <span class="chip" data-value="one.one.one.one">one.one.one.one</span>
                     <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
                     <span class="chip" data-value="AS3320">AS3320</span>
                     <span class="chip" data-value="DE">DE</span>
@@ -204,6 +205,13 @@
             `;
         }
 
+        function protocolGaugeCards(protocols) {
+            return (protocols || []).map((entry) => {
+                const label = String(entry.protocol || "").toUpperCase();
+                return gauge(`Resolver ${label}`, entry.percent || 0, `${formatNumber(entry.count)} resolvers`);
+            }).join("");
+        }
+
         function renderDashboard(summary) {
             const mapId = `resolver-country-map-${Date.now()}`;
             const latest = summary.last_observation_ts ? new Date(summary.last_observation_ts).toLocaleString() : "-";
@@ -225,6 +233,7 @@
                         ${metricCard("Resolver TCP", formatNumber(summary.resolver_tcp_count), "Resolvers supporting TCP")}
                         ${metricCard("Resolver UDP", formatNumber(summary.resolver_udp_count), "Resolvers supporting UDP")}
                         ${metricCard("Resolver TCP + UDP", formatNumber(summary.resolver_tcp_udp_count), "Resolvers supporting both")}
+                        ${protocolGaugeCards(summary.resolver_protocols)}
                     </div>
                     <div class="map-wrap dashboard-map" id="${mapId}"></div>
                 </div>
@@ -286,11 +295,30 @@
             if (/^[A-Za-z]{2,3}$/.test(trimmed)) {
                 return "country";
             }
+            if (/^[A-Za-z][A-Za-z0-9.+-]*:\d{1,5}$/.test(trimmed)) {
+                return "protocol";
+            }
             if (trimmed.includes(":")) {
                 return "resolver";
             }
             if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(trimmed)) {
                 return "resolver";
+            }
+            if (/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.?$/.test(trimmed)) {
+                return "domain";
+            }
+            return null;
+        }
+
+        function singleAddressFromPrefix(value) {
+            const trimmed = value.trim();
+            const ipv4Match = trimmed.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/32$/);
+            if (ipv4Match) {
+                return ipv4Match[1];
+            }
+            const ipv6Match = trimmed.match(/^([0-9A-Fa-f:.]+)\/128$/);
+            if (ipv6Match && ipv6Match[1].includes(":")) {
+                return ipv6Match[1];
             }
             return null;
         }
@@ -310,6 +338,12 @@
             if (type === "country") {
                 return `${apiBaseUrl}/api/dns-resilience/country/${encodeURIComponent(query.toUpperCase())}`;
             }
+            if (type === "domain") {
+                return `${apiBaseUrl}/api/dns-resilience/domain/${encodeURIComponent(query)}`;
+            }
+            if (type === "protocol") {
+                return `${apiBaseUrl}/api/dns-resilience/protocol/${encodeURIComponent(query.toLowerCase())}`;
+            }
             return null;
         }
 
@@ -319,6 +353,18 @@
                 const ipCell = ip === "-"
                     ? "-"
                     : `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(ip)}">${ip}</a>`;
+                const domainCell = resolver.domain
+                    ? resolver.domain.split(",").map((domain) => {
+                        const clean = domain.trim();
+                        return clean ? `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(clean)}">${clean}</a>` : "";
+                    }).filter(Boolean).join(", ")
+                    : "-";
+                const serviceCell = resolver.supported_protocols
+                    ? resolver.supported_protocols.split(",").map((service) => {
+                        const clean = service.trim().toLowerCase();
+                        return clean ? `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(clean)}">${clean}</a>` : "";
+                    }).filter(Boolean).join(", ")
+                    : "-";
                 return `
                     <tr>
                         <td>${ipCell}</td>
@@ -326,6 +372,8 @@
                         <td>${resolver.bgp_prefix ?? "-"}</td>
                         <td>${resolver.country ?? "-"}</td>
                         <td>${resolver.org_short || resolver.org || "-"}</td>
+                        <td>${domainCell}</td>
+                        <td>${serviceCell}</td>
                         <td>${resolver.is_public ? "yes" : "no"}</td>
                     </tr>
                 `;
@@ -348,6 +396,8 @@
                                 <th>Prefix</th>
                                 <th>Country</th>
                                 <th>Organization</th>
+                                <th>Domain</th>
+                                <th>Protocol:port</th>
                                 <th>Public</th>
                             </tr>
                         </thead>
@@ -460,7 +510,6 @@
             const forwarderCounts = summary.forwarder_countries || [];
             const forwarderAsnCounts = summary.forwarder_asns || [];
             const forwarderGraphId = `forwarder-${Date.now()}`;
-            const forwarderToggleId = `forwarder-toggle-${Date.now()}`;
             const forwarderCountryTabId = `forwarder-country-tab-${Date.now()}`;
             const forwarderAsnTabId = `forwarder-asn-tab-${Date.now()}`;
 
@@ -484,16 +533,24 @@
             const qminYes = qminState === "yes" ? 1 : 0;
             const qminNo = qminState === "no" ? 1 : 0;
             const qminUnstable = qminState === "unstable" ? 1 : 0;
-            const alternativeIps = summary.alternative_resolver_ips || [];
-            const alternativeIpHtml = alternativeIps.length
-                ? `<div class="ip-list">${alternativeIps.map((ip) => `<span class="ip-chip">${ip}</span>`).join("")}</div>`
+            const searchLink = (value, label = value) => `<a class="ip-chip" href="/search.html?q=${encodeURIComponent(value)}">${label}</a>`;
+            const resolverAsn = summary.resolver_asn == null ? null : searchLink(`AS${summary.resolver_asn}`);
+            const resolverCountry = summary.resolver_country ? searchLink(summary.resolver_country) : null;
+            const resolverPrefix = summary.resolver_prefix ? searchLink(summary.resolver_prefix) : null;
+            const siblingIps = summary.sibling_resolver_ips || [];
+            const siblingIpHtml = siblingIps.length
+                ? `<div class="ip-list sibling-ip-list">${siblingIps.map((ip) => searchLink(ip)).join("")}</div>`
                 : `<span class="unknown-badge">UNKNOWN</span>`;
-            const protocols = (summary.resolver_supported_protocols || "")
+            const resolverDomains = summary.resolver_domains || [];
+            const domainHtml = resolverDomains.length
+                ? `<div class="ip-list">${resolverDomains.map((domain) => searchLink(domain)).join("")}</div>`
+                : summary.resolver_domain;
+            const services = summary.resolver_services || (summary.resolver_supported_protocols || "")
                 .split(",")
-                .map((protocol) => protocol.trim())
+                .map((service) => service.trim())
                 .filter(Boolean);
-            const protocolHtml = protocols.length
-                ? `<div class="ip-list">${protocols.map((protocol) => `<span class="ip-chip">${protocol}</span>`).join("")}</div>`
+            const serviceHtml = services.length
+                ? `<div class="ip-list">${services.map((service) => searchLink(service.toLowerCase())).join("")}</div>`
                 : null;
             const spoofingTotal = Number(summary.spoofing_prefix_count || 0);
             const spoofingAllow = Number(summary.spoofing_allow_count || 0);
@@ -517,16 +574,16 @@
                         ${spoofingCard(spoofingTotal, spoofingBlocked, spoofingAllow, spoofingUnknown)}
                     </div>
                     <div class="metadata-grid">
-                        ${metadataCard("ASN", summary.resolver_asn == null ? null : `AS${summary.resolver_asn}`)}
-                        ${metadataCard("Country", summary.resolver_country)}
-                        ${metadataCard("BGP prefix", summary.resolver_prefix)}
-                        ${metadataCard("Domain", summary.resolver_domain)}
+                        ${metadataCard("ASN", resolverAsn)}
+                        ${metadataCard("Country", resolverCountry)}
+                        ${metadataCard("BGP prefix", resolverPrefix)}
+                        ${metadataCard("Domain names", domainHtml)}
                         ${metadataCard("Organization", summary.resolver_org)}
-                        ${metadataCard("Supported protocols", protocolHtml)}
+                        ${metadataCard("Protocol:port", serviceHtml)}
                         ${metadataCard("Last observed", lastObservation === "-" ? null : lastObservation)}
                         <div class="metadata-card">
-                            <div class="metadata-label">Alternative resolver IPs</div>
-                            <div class="metadata-value">${alternativeIpHtml}</div>
+                            <div class="metadata-label">Sibling resolver IPs</div>
+                            <div class="metadata-value">${siblingIpHtml}</div>
                         </div>
                         ${metadataCard("IPv4 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv4) : null)}
                         ${metadataCard("IPv6 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv6) : null)}
@@ -536,11 +593,10 @@
                     <div class="map-wrap" id="${mapId}"></div>
                     <div class="graph-section">
                         <div class="tile-header">
-                            <div class="tile-title">Open forwarders that relay queries to ${summary.resolver_ip}</div>
+                            <div class="tile-title">Top 10 open forwarders that relay queries to ${summary.resolver_ip}</div>
                             <div>
                                 <button class="graph-toggle" id="${forwarderCountryTabId}" type="button">Countries</button>
                                 <button class="graph-toggle" id="${forwarderAsnTabId}" type="button">ASNs</button>
-                                <button class="graph-toggle" id="${forwarderToggleId}" type="button">Show all</button>
                             </div>
                         </div>
                         <div class="graph-wrap" id="${forwarderGraphId}"></div>
@@ -558,7 +614,6 @@
             }
 
             const graphEl = document.getElementById(forwarderGraphId);
-            const toggleEl = document.getElementById(forwarderToggleId);
             const countryTabEl = document.getElementById(forwarderCountryTabId);
             const asnTabEl = document.getElementById(forwarderAsnTabId);
             if (graphEl) {
@@ -566,12 +621,11 @@
                     graphEl.innerHTML = `<div class="empty">No forwarder relay data to display.</div>`;
                 } else {
                     let mode = "country";
-                    let showAll = false;
 
                     const renderForwarderGraph = () => {
                         const sourceRows = mode === "asn" ? forwarderAsnCounts : forwarderCounts;
                         const sorted = [...sourceRows].sort((a, b) => b.count - a.count);
-                        const entries = showAll ? sorted : sorted.slice(0, 10);
+                        const entries = sorted.slice(0, 10);
                         const totalCount = entries.reduce((sum, entry) => sum + (entry.count || 0), 0);
 
                         if (!entries.length) {
@@ -656,14 +710,6 @@
                             renderForwarderGraph();
                         });
                     }
-                    if (toggleEl) {
-                        toggleEl.textContent = "Show all";
-                        toggleEl.addEventListener("click", () => {
-                            showAll = !showAll;
-                            toggleEl.textContent = showAll ? "Show top 10" : "Show all";
-                            renderForwarderGraph();
-                        });
-                    }
                 }
             }
         }
@@ -727,10 +773,11 @@
         }
 
         async function runLookup() {
-            const query = input.value.trim();
+            const rawQuery = input.value.trim();
+            const query = singleAddressFromPrefix(rawQuery) || rawQuery;
             const type = detectQueryType(query);
             if (!type) {
-                setStatus("Enter an IP, prefix, ASN, or country code.", "error");
+                setStatus("Enter an IP, domain, prefix, ASN, or country code.", "error");
                 return;
             }
 
