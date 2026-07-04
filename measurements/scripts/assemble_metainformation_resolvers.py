@@ -5,10 +5,22 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import logging
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
 import polars as pl
+
+OBSERVATORY_ROOT = Path(__file__).resolve().parents[2]
+if str(OBSERVATORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(OBSERVATORY_ROOT))
+
+try:
+    from loguru import logger
+except ModuleNotFoundError:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    logger = logging.getLogger(__name__)
 
 
 def _load_rows(path: Path) -> Iterable[dict[str, Any]]:
@@ -50,7 +62,8 @@ def _string_list(value: Any) -> list[str] | None:
     if isinstance(value, list):
         values = [str(item) for item in value if item is not None]
         return values or None
-    return [str(value)]
+    values = [part.strip() for part in str(value).split(",") if part.strip()]
+    return values or None
 
 
 def _resolver_ip(value: Any) -> str | None:
@@ -163,16 +176,43 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Assemble ZDNS resolver metainformation JSON/JSONL outputs.")
     parser.add_argument("input", nargs="+", type=Path, help="ZDNS JSON or JSONL output file(s).")
     parser.add_argument("--head", type=int, default=10, help="Number of rows to print from each dataframe.")
+    parser.add_argument(
+        "--no-import",
+        action="store_true",
+        help="Only assemble and print dataframe heads; do not run database import dry-runs.",
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        action="store_true",
+        help="Write assembled PTR/SVCB data to the database. Default is dry-run.",
+    )
+    parser.add_argument(
+        "--source",
+        default="zdns.svcb",
+        help="Source for resolver IPs inserted from IPv6 hints. Default: zdns.svcb.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     ptr_frame, svcb_frame = assemble_metainformation(args.input)
-    print("PTR dataframe:")
-    print(ptr_frame.head(args.head))
-    print("SVCB dataframe:")
-    print(svcb_frame.head(args.head))
+    logger.info("PTR dataframe head:\n{head}", head=ptr_frame.head(args.head))
+    logger.info("SVCB dataframe head:\n{head}", head=svcb_frame.head(args.head))
+
+    if args.no_import:
+        return
+
+    from data_gathering.imports.resolver.import_resolvers import (
+        import_resolver_domains_frame,
+        import_svcb_metadata_frame,
+    )
+
+    dry_run = not args.no_dry_run
+    domain_report = import_resolver_domains_frame(ptr_frame, dry_run=dry_run, update_existing=True)
+    svcb_report = import_svcb_metadata_frame(svcb_frame, dry_run=dry_run, source=args.source)
+    logger.info("PTR import report: {report}", report=domain_report)
+    logger.info("SVCB import report: {report}", report=svcb_report)
 
 
 if __name__ == "__main__":
