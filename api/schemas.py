@@ -11,6 +11,8 @@ class ResolverRecord(Schema):
     bgp_prefix: Optional[str] = Field(None, description="BGP prefix")
     org: Optional[str] = Field(None, description="Organization name")
     org_short: Optional[str] = Field(None, description="Organization short name")
+    domain: Optional[str] = Field(None, description="Associated resolver domain names")
+    supported_protocols: Optional[str] = Field(None, description="Supported resolver services as protocol:port entries")
     country: Optional[str] = Field(None, description="Country code")
     is_public: Optional[bool] = Field(None, description="Public resolver flag")
     last_observation_ts: Optional[datetime] = Field(None, description="Last observation timestamp")
@@ -19,7 +21,7 @@ class ResolverRecord(Schema):
 
 class DNSResilienceResponse(Schema):
     target: str = Field(..., description="The queried target")
-    target_type: str = Field(..., description="Type of target (resolver, prefix, asn, country)")
+    target_type: str = Field(..., description="Type of target (resolver, prefix, asn, country, domain, protocol)")
     total: int = Field(..., description="Total number of resolvers found")
     resolvers: List[ResolverRecord] = Field(default_factory=list)
     public_resolver_count: Optional[int] = Field(None, description="Public resolvers in country")
@@ -82,6 +84,12 @@ class ResolverCountryDashboard(Schema):
     longitude: Optional[float] = Field(None, description="Country longitude")
 
 
+class ResolverProtocolDashboard(Schema):
+    protocol: str = Field(..., description="Resolver service protocol")
+    count: int = Field(..., description="Resolvers supporting this protocol")
+    percent: float = Field(..., description="Share of all resolvers supporting this protocol")
+
+
 class ResolverDashboardSummaryResponse(Schema):
     resolver_count: int = Field(..., description="Total resolver count")
     resolver_ipv4_count: int = Field(..., description="IPv4 resolver count")
@@ -94,6 +102,7 @@ class ResolverDashboardSummaryResponse(Schema):
     resolver_tcp_count: int = Field(..., description="Resolvers supporting TCP")
     resolver_udp_count: int = Field(..., description="Resolvers supporting UDP")
     resolver_tcp_udp_count: int = Field(..., description="Resolvers supporting both TCP and UDP")
+    resolver_protocols: List[ResolverProtocolDashboard] = Field(default_factory=list)
     resolver_countries: List[ResolverCountryDashboard] = Field(default_factory=list)
     forwarder_count: int = Field(..., description="Total forwarder count")
     forwarder_public_count: int = Field(..., description="Public forwarder count")
@@ -117,14 +126,17 @@ class ResolverAnycastSummaryResponse(Schema):
     resolver_city: Optional[str] = Field(None, description="Resolver city")
     resolver_org: Optional[str] = Field(None, description="Resolver organization")
     resolver_domain: Optional[str] = Field(None, description="Resolver domain")
+    resolver_domains: List[str] = Field(default_factory=list, description="Associated resolver domains")
     resolver_qmin: Optional[str] = Field(None, description="Resolver QMIN state")
     resolver_is_public: Optional[bool] = Field(None, description="Public resolver flag")
     resolver_supported_protocols: Optional[str] = Field(None, description="Supported protocols for the resolver")
+    resolver_services: List[str] = Field(default_factory=list, description="Supported resolver services as protocol:port entries")
     resolver_supports_tcp: bool = Field(..., description="Resolver supports TCP")
     resolver_supports_udp: bool = Field(..., description="Resolver supports UDP")
     resolver_supports_ipv4: bool = Field(..., description="Resolver has an IPv4 address")
     resolver_supports_ipv6: bool = Field(..., description="Resolver has an IPv6 address")
     alternative_resolver_ips: List[str] = Field(default_factory=list)
+    sibling_resolver_ips: List[str] = Field(default_factory=list)
     spoofing_prefix_count: int = Field(..., description="Spoofing prefixes containing the resolver IP")
     spoofing_allow_count: int = Field(..., description="Containing spoofing prefixes that allow spoofing")
     spoofing_blocked_count: int = Field(..., description="Containing spoofing prefixes that block spoofing")

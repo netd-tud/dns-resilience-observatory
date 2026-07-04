@@ -168,6 +168,39 @@ def get_dns_resilience_by_country(request, country: str, limit: int = Query(100,
 
 
 @api.get(
+    "/dns-resilience/domain/{domain}",
+    response=DNSResilienceResponse,
+    summary="Get DNS resilience data for a resolver domain",
+)
+def get_dns_resilience_by_domain(request, domain: str, limit: int = Query(100, ge=1, le=1000)):
+    logger.info("DNS resilience request for domain: %s", domain)
+    normalized_domain = dns_resilience_service.validate_domain(domain)
+    resolvers = dns_resilience_service.get_resolvers_by_domain(domain, limit=limit)
+    return DNSResilienceResponse(
+        target=normalized_domain,
+        target_type="domain",
+        total=len(resolvers),
+        resolvers=resolvers,
+    )
+
+
+@api.get(
+    "/dns-resilience/protocol/{service}",
+    response=DNSResilienceResponse,
+    summary="Get DNS resilience data for a resolver protocol or protocol:port service",
+)
+def get_dns_resilience_by_protocol(request, service: str, limit: int = Query(100, ge=1, le=1000)):
+    logger.info("DNS resilience request for resolver service: %s", service)
+    normalized_service, resolvers = dns_resilience_service.get_resolvers_by_service(service, limit=limit)
+    return DNSResilienceResponse(
+        target=normalized_service,
+        target_type="protocol",
+        total=len(resolvers),
+        resolvers=resolvers,
+    )
+
+
+@api.get(
     "/dns-resilience/country/{country}/qmin",
     summary="Get QMIN aggregate data for a country",
 )
