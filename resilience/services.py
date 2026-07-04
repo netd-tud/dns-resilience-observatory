@@ -47,7 +47,7 @@ class DNSResilienceService:
         sql = f"""
             SELECT
                 r.resolver_id AS id,
-                r.ip::TEXT AS ip,
+                host(r.ip) AS ip,
                 ra.asn,
                 rp.prefix::TEXT AS bgp_prefix,
                 ro.org,
@@ -57,7 +57,10 @@ class DNSResilienceService:
                 r.is_public,
                 r.last_update_ts AS last_observation_ts,
                 r.source,
-                STRING_AGG(DISTINCT rs.protocol, ',' ORDER BY rs.protocol) AS supported_protocols
+                STRING_AGG(
+                    DISTINCT (rs.protocol || ':' || rs.port::TEXT),
+                    ',' ORDER BY (rs.protocol || ':' || rs.port::TEXT)
+                ) FILTER (WHERE rs.protocol IS NOT NULL AND rs.port IS NOT NULL) AS supported_protocols
             FROM resolver r
             LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
             LEFT JOIN resolver_prefix rp ON rp.resolver_id = r.resolver_id
@@ -119,6 +122,34 @@ class DNSResilienceService:
             return entry.alpha_3
         raise ValidationError(f"Invalid country code '{country}': must be ISO 3166-1 alpha-2 or alpha-3")
 
+    def validate_domain(self, domain: str) -> str:
+        if not domain or not isinstance(domain, str):
+            raise ValidationError("Domain must be a non-empty string")
+        normalized = domain.strip().rstrip(".").lower()
+        if len(normalized) > 253 or "." not in normalized:
+            raise ValidationError(f"Invalid domain '{domain}': must be a fully qualified domain name")
+        label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+        if not re.fullmatch(rf"{label}(?:\.{label})+", normalized):
+            raise ValidationError(f"Invalid domain '{domain}': contains invalid DNS label characters")
+        return normalized
+
+    def validate_resolver_service(self, service: str) -> tuple[str, int | None]:
+        if not service or not isinstance(service, str):
+            raise ValidationError("Protocol must be a non-empty string")
+        normalized = service.strip().lower()
+        if ":" in normalized:
+            protocol, port_text = normalized.rsplit(":", 1)
+            if not port_text.isdigit():
+                raise ValidationError(f"Invalid protocol lookup '{service}': port must be numeric")
+            port = int(port_text)
+            if not (1 <= port <= 65535):
+                raise ValidationError(f"Invalid protocol lookup '{service}': port is out of range")
+        else:
+            protocol, port = normalized, None
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", protocol):
+            raise ValidationError(f"Invalid protocol '{service}'")
+        return protocol, port
+
     @cached()
     def get_resolvers_by_ip(self, ip: str, limit: int = 100) -> list[dict]:
         normalized = self.validate_ip_address(ip)
@@ -144,6 +175,21 @@ class DNSResilienceService:
         return self._fetchall(sql, [normalized, *params])
 
     @cached()
+    def get_resolvers_by_domain(self, domain: str, limit: int = 100) -> list[dict]:
+        normalized = self.validate_domain(domain)
+        sql, params = self._resolver_select("LOWER(rd.domain) = LOWER(%s)", limit=limit)
+        return self._fetchall(sql, [normalized, *params])
+
+    @cached()
+    def get_resolvers_by_service(self, service: str, limit: int = 100) -> tuple[str, list[dict]]:
+        protocol, port = self.validate_resolver_service(service)
+        if port is None:
+            sql, params = self._resolver_select("LOWER(rs.protocol) = %s", limit=limit)
+            return protocol, self._fetchall(sql, [protocol, *params])
+        sql, params = self._resolver_select("LOWER(rs.protocol) = %s AND rs.port = %s", limit=limit)
+        return f"{protocol}:{port}", self._fetchall(sql, [protocol, port, *params])
+
+    @cached()
     def get_resolver_core(self, ip: str) -> dict:
         normalized = self.validate_ip_address(ip)
         rows = self.get_resolvers_by_ip(normalized, limit=1)
@@ -156,7 +202,7 @@ class DNSResilienceService:
         return self._fetchall(
             """
             SELECT
-                ip::TEXT AS ip,
+                host(ip) AS ip,
                 family(ip)::INTEGER AS family
             FROM resolver
             WHERE resolver_id = %s
@@ -164,6 +210,68 @@ class DNSResilienceService:
             """,
             [resolver_id],
         )
+
+    @cached()
+    def get_resolver_sibling_ips(self, resolver_id: int | None, current_ip: str | None) -> list[dict]:
+        if not resolver_id:
+            return []
+        normalized_current = self.validate_ip_address(current_ip) if current_ip else None
+        return self._fetchall(
+            """
+            WITH target_domain AS (
+                SELECT LOWER(domain) AS domain
+                FROM resolver_domain
+                WHERE resolver_id = %s
+                  AND domain IS NOT NULL
+            ),
+            sibling_resolver AS (
+                SELECT %s::BIGINT AS resolver_id
+                UNION
+                SELECT rd.resolver_id
+                FROM resolver_domain rd
+                JOIN target_domain td ON LOWER(rd.domain) = td.domain
+            )
+            SELECT DISTINCT
+                host(r.ip) AS ip,
+                family(r.ip)::INTEGER AS family
+            FROM resolver r
+            JOIN sibling_resolver sr ON sr.resolver_id = r.resolver_id
+            WHERE (%s::inet IS NULL OR r.ip <> %s::inet)
+            ORDER BY family(r.ip), host(r.ip)
+            """,
+            [resolver_id, resolver_id, normalized_current, normalized_current],
+        )
+
+    @cached()
+    def get_resolver_domains(self, resolver_id: int | None) -> list[str]:
+        if not resolver_id:
+            return []
+        rows = self._fetchall(
+            """
+            SELECT domain
+            FROM resolver_domain
+            WHERE resolver_id = %s
+              AND domain IS NOT NULL
+            ORDER BY LOWER(domain)
+            """,
+            [resolver_id],
+        )
+        return [row["domain"] for row in rows]
+
+    @cached()
+    def get_resolver_services(self, resolver_id: int | None) -> list[str]:
+        if not resolver_id:
+            return []
+        rows = self._fetchall(
+            """
+            SELECT protocol, port
+            FROM resolver_service
+            WHERE resolver_id = %s
+            ORDER BY protocol, port
+            """,
+            [resolver_id],
+        )
+        return [f"{row['protocol']}:{row['port']}" for row in rows]
 
     @cached()
     def get_resolver_qmin(self, ip: str) -> dict:
@@ -781,15 +889,27 @@ class DNSResilienceService:
         protocol_row = self._fetchone(
             """
             SELECT
-                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol = 'tcp')::INTEGER AS resolver_tcp_count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol = 'udp')::INTEGER AS resolver_udp_count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol IN ('tcp', 'dotcp'))::INTEGER AS resolver_tcp_count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol IN ('udp', 'doudp'))::INTEGER AS resolver_udp_count,
                 COUNT(DISTINCT resolver_id) FILTER (
-                    WHERE resolver_id IN (SELECT resolver_id FROM resolver_service WHERE protocol = 'tcp')
-                      AND protocol = 'udp'
+                    WHERE resolver_id IN (SELECT resolver_id FROM resolver_service WHERE protocol IN ('tcp', 'dotcp'))
+                      AND protocol IN ('udp', 'doudp')
                 )::INTEGER AS resolver_tcp_udp_count
             FROM resolver_service
             """
         ) or {}
+        protocol_rows = self._fetchall(
+            """
+            SELECT
+                protocol,
+                COUNT(DISTINCT resolver_id)::INTEGER AS count
+            FROM resolver_service
+            WHERE protocol IS NOT NULL
+              AND TRIM(protocol) <> ''
+            GROUP BY protocol
+            ORDER BY count DESC, protocol
+            """
+        )
         resolver_anycast = self._fetchone(
             """
             SELECT COUNT(*)::INTEGER AS resolver_anycast_count
@@ -853,6 +973,14 @@ class DNSResilienceService:
             "resolver_tcp_count": protocol_row.get("resolver_tcp_count", 0) or 0,
             "resolver_udp_count": protocol_row.get("resolver_udp_count", 0) or 0,
             "resolver_tcp_udp_count": protocol_row.get("resolver_tcp_udp_count", 0) or 0,
+            "resolver_protocols": [
+                {
+                    "protocol": row["protocol"],
+                    "count": row["count"],
+                    "percent": self._pc(row["count"], resolver_count),
+                }
+                for row in protocol_rows
+            ],
             "resolver_public_pc": round((resolver_public_count / resolver_count) * 100, 2) if resolver_count else 0,
             "resolver_closed_pc": round(((resolver_row.get("resolver_closed_count", 0) or 0) / resolver_count) * 100, 2) if resolver_count else 0,
             "resolver_countries": countries,
@@ -1019,7 +1147,10 @@ class DNSResilienceService:
         resolver = core.get("resolver") or {}
         qmin_value = qmin.get("qmin")
         alternative_ips = self.get_resolver_alternative_ips(resolver.get("id"))
-        tokens = self._protocol_tokens(resolver.get("supported_protocols"))
+        sibling_ips = self.get_resolver_sibling_ips(resolver.get("id"), core["resolver_ip"])
+        resolver_domains = self.get_resolver_domains(resolver.get("id"))
+        resolver_services = self.get_resolver_services(resolver.get("id"))
+        tokens = self._protocol_tokens(",".join(resolver_services) or resolver.get("supported_protocols"))
         return {
             "resolver_ip": core["resolver_ip"],
             "resolver_found": core["found"],
@@ -1028,15 +1159,18 @@ class DNSResilienceService:
             "resolver_country": resolver.get("country"),
             "resolver_city": resolver.get("city"),
             "resolver_org": resolver.get("org"),
-            "resolver_domain": resolver.get("domain"),
+            "resolver_domain": ", ".join(resolver_domains) if resolver_domains else resolver.get("domain"),
+            "resolver_domains": resolver_domains,
             "resolver_qmin": qmin_value,
             "resolver_is_public": resolver.get("is_public"),
-            "resolver_supported_protocols": resolver.get("supported_protocols"),
-            "resolver_supports_tcp": "tcp" in tokens,
-            "resolver_supports_udp": "udp" in tokens,
+            "resolver_supported_protocols": ",".join(resolver_services) if resolver_services else resolver.get("supported_protocols"),
+            "resolver_services": resolver_services,
+            "resolver_supports_tcp": "tcp" in tokens or "dotcp" in tokens,
+            "resolver_supports_udp": "udp" in tokens or "doudp" in tokens,
             "resolver_supports_ipv4": any(row.get("family") == 4 for row in alternative_ips),
             "resolver_supports_ipv6": any(row.get("family") == 6 for row in alternative_ips),
             "alternative_resolver_ips": [row["ip"] for row in alternative_ips],
+            "sibling_resolver_ips": [row["ip"] for row in sibling_ips],
             **spoofing,
             "anycast_found": anycast["anycast_found"],
             "anycast_site_count": sum(item.get("count") or 0 for item in sites["countries"]),
