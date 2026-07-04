@@ -6,7 +6,7 @@ import argparse
 import ipaddress
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -124,8 +124,8 @@ def read_input_file(
             new_columns=headers,
             separator=separator,
         )
-    if suffix in {".json", ".ndjson"}:
-        return pl.read_ndjson(path) if suffix == ".ndjson" else pl.read_json(path)
+    if suffix in {".json", ".jsonl", ".ndjson"}:
+        return pl.read_ndjson(path) if suffix in {".jsonl", ".ndjson"} else pl.read_json(path)
     raise ValueError(f"Unsupported input file type {suffix!r}; use CSV, Parquet, JSON, or NDJSON")
 
 
@@ -157,6 +157,10 @@ def normalize_bool(value: object, default: bool = False) -> bool:
 def default_import_ts() -> datetime:
     now = datetime.now(timezone.utc)
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def today_midnight_ts() -> datetime:
+    return datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
 
 
 def normalize_timestamp(value: object) -> datetime | None:
@@ -696,7 +700,18 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         FROM (
             SELECT
                 resolver_id,
-                LOWER(TRIM(protocol_part)) AS protocol,
+                CASE LOWER(TRIM(protocol_part))
+                    WHEN 'h3' THEN 'doh3'
+                    WHEN 'http2' THEN 'doh'
+                    WHEN 'http/2' THEN 'doh'
+                    WHEN 'h2' THEN 'doh'
+                    WHEN 'http/1.1' THEN 'doh1.1'
+                    WHEN 'doq' THEN 'doq'
+                    WHEN 'dot' THEN 'dot'
+                    WHEN 'tcp' THEN 'dotcp'
+                    WHEN 'udp' THEN 'doudp'
+                    ELSE LOWER(TRIM(protocol_part))
+                END AS protocol,
                 port,
                 last_update_ts
             FROM resolver_import_all
@@ -884,6 +899,587 @@ def import_location_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         "updated": update_count,
         "skipped": max(resolver_candidates - insert_count - update_count, 0),
     }
+
+
+def _frame_records(frame, columns: list[str]) -> list[dict[str, object]]:
+    import polars as pl
+
+    if frame is None or frame.is_empty():
+        return []
+    missing = [column for column in columns if column not in frame.columns]
+    if missing:
+        raise ValueError(f"Missing dataframe columns: {', '.join(missing)}")
+    return frame.select(columns).to_dicts()
+
+
+def _create_metainfo_stage(cursor, stage_table: str, rows: list[dict[str, object]], columns: list[tuple[str, str]]) -> None:
+    column_defs = ", ".join(f"{name} {sql_type}" for name, sql_type in columns)
+    column_names = ", ".join(name for name, _ in columns)
+    cursor.execute(f"CREATE TEMP TABLE {stage_table} ({column_defs}) ON COMMIT DROP")
+    with cursor.copy(f"COPY {stage_table} ({column_names}) FROM STDIN") as copy:
+        for row in rows:
+            copy.write_row([row[name] for name, _ in columns])
+
+
+def _log_skipped_metainfo_row(module: str, reason: str, row: dict[str, object]) -> None:
+    logger.warning("{module}: skipped row ({reason}): {row}", module=module, reason=reason, row=row)
+
+
+def _log_missing_resolver_rows(cursor, module: str, stage_table: str) -> None:
+    cursor.execute(
+        f"""
+        SELECT s.*
+        FROM {stage_table} s
+        LEFT JOIN resolver r ON r.ip = s.resolver_ip
+        WHERE r.ip IS NULL
+        ORDER BY s.resolver_ip
+        """
+    )
+    for row in cursor.fetchall():
+        logger.warning("{module}: resolver missing for staged row: {row}", module=module, row=row)
+
+
+def _resolve_resolver_stage(cursor, source_table: str, target_table: str, selected_columns: str) -> None:
+    cursor.execute(
+        f"""
+        CREATE TEMP TABLE {target_table} AS
+        SELECT r.resolver_id, {selected_columns}
+        FROM {source_table} s
+        JOIN resolver r ON r.ip = s.resolver_ip
+        """
+    )
+    cursor.execute(f"CREATE INDEX {target_table}_resolver_id_idx ON {target_table} (resolver_id)")
+
+
+def import_resolver_domains_frame(
+    frame,
+    *,
+    dry_run: bool = True,
+    update_existing: bool = True,
+    last_update_ts: datetime | None = None,
+) -> dict[str, int]:
+    """Import resolver_ip/domain rows into resolver_domain."""
+
+    from data_gathering.config.db_connection import close_db_connection, connect_to_db
+
+    import_ts = last_update_ts or today_midnight_ts()
+    rows: list[dict[str, object]] = []
+    for record in _frame_records(frame, ["resolver_ip", "domain"]):
+        ip = normalize_ip(record.get("resolver_ip"))
+        domain = normalize_text(record.get("domain"))
+        if ip and domain:
+            rows.append({"resolver_ip": ip, "domain": domain.rstrip(".").lower(), "last_update_ts": import_ts})
+        else:
+            _log_skipped_metainfo_row("resolver_domain", "missing or invalid resolver_ip/domain", record)
+
+    logger.info("resolver_domain dataframe head:\n{head}", head=frame.head() if frame is not None else None)
+    if dry_run:
+        logger.info("Dry-run mode is active for resolver_domain import")
+
+    cursor = connect_to_db()
+    connection = cursor.connection
+    try:
+        _create_metainfo_stage(
+            cursor,
+            "resolver_domain_metainfo_stage",
+            rows,
+            [("resolver_ip", "INET"), ("domain", "TEXT"), ("last_update_ts", "TIMESTAMPTZ")],
+        )
+        _resolve_resolver_stage(
+            cursor,
+            "resolver_domain_metainfo_stage",
+            "resolver_domain_metainfo_resolved",
+            "s.domain, s.last_update_ts",
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE resolver_domain_metainfo_unique AS
+            SELECT DISTINCT ON (resolver_id)
+                resolver_id, domain, last_update_ts
+            FROM resolver_domain_metainfo_resolved
+            ORDER BY resolver_id, last_update_ts DESC, domain
+            """
+        )
+        cursor.execute("SELECT COUNT(*) FROM resolver_domain_metainfo_stage")
+        candidates = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_domain_metainfo_resolved")
+        resolved = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_domain_metainfo_unique")
+        unique_count = cursor.fetchone()[0]
+        skipped_missing_resolver = candidates - resolved
+        if skipped_missing_resolver:
+            _log_missing_resolver_rows(cursor, "resolver_domain", "resolver_domain_metainfo_stage")
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_domain_metainfo_unique s
+            LEFT JOIN resolver_domain t ON t.resolver_id = s.resolver_id
+            WHERE t.resolver_id IS NULL
+            """
+        )
+        inserted = cursor.fetchone()[0]
+
+        if update_existing:
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM resolver_domain_metainfo_unique s
+                JOIN resolver_domain t ON t.resolver_id = s.resolver_id
+                WHERE s.last_update_ts > t.last_update_ts
+                """
+            )
+            updated = cursor.fetchone()[0]
+        else:
+            updated = 0
+
+        if not dry_run:
+            cursor.execute(
+                """
+                INSERT INTO resolver_domain (resolver_id, domain, last_update_ts)
+                SELECT s.resolver_id, s.domain, s.last_update_ts
+                FROM resolver_domain_metainfo_unique s
+                LEFT JOIN resolver_domain t ON t.resolver_id = s.resolver_id
+                WHERE t.resolver_id IS NULL
+                """
+            )
+            if update_existing:
+                cursor.execute(
+                    """
+                    UPDATE resolver_domain t
+                    SET domain = s.domain,
+                        last_update_ts = s.last_update_ts
+                    FROM resolver_domain_metainfo_unique s
+                    WHERE t.resolver_id = s.resolver_id
+                      AND s.last_update_ts > t.last_update_ts
+                    """
+                )
+            connection.commit()
+        else:
+            connection.rollback()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        close_db_connection(cursor)
+
+    report = {
+        "candidates": candidates,
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": max(candidates - inserted - updated, 0),
+        "duplicate": resolved - unique_count,
+        "missing_resolver": skipped_missing_resolver,
+    }
+    logger.info(
+        "resolver_domain: candidates={candidates}, inserted={inserted}, updated={updated}, skipped={skipped}, duplicate={duplicate}, missing_resolver={missing_resolver}",
+        **report,
+    )
+    return report
+
+
+def _metainfo_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    return [part.strip().strip("'\"") for part in text.split(",") if part.strip().strip("'\"")]
+
+
+ALPN_PROTOCOL_MAP = {
+    "h3": "doh3",
+    "http2": "doh",
+    "http/2": "doh",
+    "h2": "doh",
+    "http/1.1": "doh1.1",
+    "doq": "doq",
+    "dot": "dot",
+    "tcp": "dotcp",
+    "udp": "doudp",
+}
+
+
+def _map_alpn_protocol(value: str) -> str:
+    protocol = value.strip().lower()
+    return ALPN_PROTOCOL_MAP.get(protocol, protocol)
+
+
+def _svcb_service_rows(frame, import_ts: datetime) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for record in _frame_records(frame, ["resolver_ip", "alpn", "port"]):
+        ip = normalize_ip(record.get("resolver_ip"))
+        port = normalize_port(record.get("port"))
+        if not ip or port is None:
+            _log_skipped_metainfo_row("resolver_service", "missing or invalid resolver_ip/port", record)
+            continue
+        protocols = _metainfo_list(record.get("alpn"))
+        if not protocols:
+            _log_skipped_metainfo_row("resolver_service", "missing alpn", record)
+            continue
+        for protocol in protocols:
+            rows.append(
+                {
+                    "resolver_ip": ip,
+                    "protocol": _map_alpn_protocol(protocol),
+                    "port": port,
+                    "last_update_ts": import_ts,
+                }
+            )
+    return rows
+
+
+def import_resolver_services_frame(
+    frame,
+    *,
+    dry_run: bool = True,
+    last_update_ts: datetime | None = None,
+) -> dict[str, int]:
+    """Import exploded resolver_ip/alpn/port rows into resolver_service."""
+
+    from data_gathering.config.db_connection import close_db_connection, connect_to_db
+
+    import_ts = last_update_ts or today_midnight_ts()
+    rows = _svcb_service_rows(frame, import_ts)
+    logger.info("resolver_service dataframe head:\n{head}", head=frame.head() if frame is not None else None)
+    if dry_run:
+        logger.info("Dry-run mode is active for resolver_service import")
+
+    cursor = connect_to_db()
+    connection = cursor.connection
+    try:
+        _create_metainfo_stage(
+            cursor,
+            "resolver_service_metainfo_stage",
+            rows,
+            [
+                ("resolver_ip", "INET"),
+                ("protocol", "TEXT"),
+                ("port", "INTEGER"),
+                ("last_update_ts", "TIMESTAMPTZ"),
+            ],
+        )
+        _resolve_resolver_stage(
+            cursor,
+            "resolver_service_metainfo_stage",
+            "resolver_service_metainfo_resolved",
+            "s.protocol, s.port, s.last_update_ts",
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE resolver_service_metainfo_unique AS
+            SELECT DISTINCT ON (resolver_id, protocol, port)
+                resolver_id, protocol, port, last_update_ts
+            FROM resolver_service_metainfo_resolved
+            ORDER BY resolver_id, protocol, port, last_update_ts DESC
+            """
+        )
+        cursor.execute("SELECT COUNT(*) FROM resolver_service_metainfo_stage")
+        candidates = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_service_metainfo_unique")
+        unique_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_service_metainfo_resolved")
+        resolved = cursor.fetchone()[0]
+        if candidates - resolved:
+            _log_missing_resolver_rows(cursor, "resolver_service", "resolver_service_metainfo_stage")
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_service_metainfo_unique s
+            LEFT JOIN resolver_service t
+              ON t.resolver_id = s.resolver_id
+             AND t.protocol = s.protocol
+             AND t.port = s.port
+            WHERE t.resolver_id IS NULL
+            """
+        )
+        inserted = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_service_metainfo_unique s
+            JOIN resolver_service t
+              ON t.resolver_id = s.resolver_id
+             AND t.protocol = s.protocol
+             AND t.port = s.port
+            WHERE s.last_update_ts > t.last_update_ts
+            """
+        )
+        updated = cursor.fetchone()[0]
+
+        if not dry_run:
+            cursor.execute(
+                """
+                INSERT INTO resolver_service (resolver_id, protocol, port, last_update_ts)
+                SELECT s.resolver_id, s.protocol, s.port, s.last_update_ts
+                FROM resolver_service_metainfo_unique s
+                LEFT JOIN resolver_service t
+                  ON t.resolver_id = s.resolver_id
+                 AND t.protocol = s.protocol
+                 AND t.port = s.port
+                WHERE t.resolver_id IS NULL
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE resolver_service t
+                SET last_update_ts = s.last_update_ts
+                FROM resolver_service_metainfo_unique s
+                WHERE t.resolver_id = s.resolver_id
+                  AND t.protocol = s.protocol
+                  AND t.port = s.port
+                  AND s.last_update_ts > t.last_update_ts
+                """
+            )
+            connection.commit()
+        else:
+            connection.rollback()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        close_db_connection(cursor)
+
+    report = {
+        "candidates": candidates,
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": max(candidates - inserted - updated, 0),
+        "duplicate": candidates - unique_count,
+        "missing_resolver": candidates - resolved,
+    }
+    logger.info(
+        "resolver_service: candidates={candidates}, inserted={inserted}, updated={updated}, skipped={skipped}, duplicate={duplicate}, missing_resolver={missing_resolver}",
+        **report,
+    )
+    return report
+
+
+def import_svcb_metadata_frame(
+    frame,
+    *,
+    dry_run: bool = True,
+    source: str = "zdns.svcb",
+    last_update_ts: datetime | None = None,
+) -> dict[str, dict[str, int]]:
+    """Import SVCB-derived services, dohpaths, fallback domains, and IPv6 hints."""
+
+    from data_gathering.config.db_connection import close_db_connection, connect_to_db
+
+    import_ts = last_update_ts or today_midnight_ts()
+    reports = {
+        "service": import_resolver_services_frame(frame, dry_run=dry_run, last_update_ts=import_ts),
+        "domain": import_resolver_domains_frame(
+            frame.select(["resolver_ip", "domain"]) if frame is not None and {"resolver_ip", "domain"} <= set(frame.columns) else frame,
+            dry_run=dry_run,
+            update_existing=False,
+            last_update_ts=import_ts,
+        ),
+    }
+
+    doh_rows: list[dict[str, object]] = []
+    ipv6_rows: list[dict[str, object]] = []
+    for record in _frame_records(frame, ["resolver_ip", "dohpath", "ipv6hint"]):
+        ip = normalize_ip(record.get("resolver_ip"))
+        dohpath = normalize_text(record.get("dohpath"))
+        if ip and dohpath:
+            doh_rows.append({"resolver_ip": ip, "dohpath": dohpath, "last_update_ts": import_ts})
+        elif record.get("dohpath") is not None:
+            _log_skipped_metainfo_row("resolver_dohpath", "missing or invalid resolver_ip/dohpath", record)
+        if ip:
+            ipv6hints = _metainfo_list(record.get("ipv6hint"))
+            for ipv6hint in ipv6hints:
+                normalized_ipv6 = normalize_ip(ipv6hint)
+                if normalized_ipv6 and ipaddress.ip_address(normalized_ipv6).version == 6:
+                    ipv6_rows.append(
+                        {
+                            "resolver_ip": ip,
+                            "ipv6": normalized_ipv6,
+                            "source": source,
+                            "last_update_ts": import_ts,
+                        }
+                    )
+                else:
+                    _log_skipped_metainfo_row("resolver_ipv6hint", "invalid ipv6hint", {**record, "ipv6hint_value": ipv6hint})
+        elif record.get("ipv6hint") is not None:
+            _log_skipped_metainfo_row("resolver_ipv6hint", "missing or invalid resolver_ip", record)
+
+    logger.info("resolver_dohpath/ipv6hint dataframe head:\n{head}", head=frame.head() if frame is not None else None)
+    if dry_run:
+        logger.info("Dry-run mode is active for SVCB metadata import")
+
+    cursor = connect_to_db()
+    connection = cursor.connection
+    try:
+        _create_metainfo_stage(
+            cursor,
+            "resolver_dohpath_metainfo_stage",
+            doh_rows,
+            [("resolver_ip", "INET"), ("dohpath", "TEXT"), ("last_update_ts", "TIMESTAMPTZ")],
+        )
+        _resolve_resolver_stage(
+            cursor,
+            "resolver_dohpath_metainfo_stage",
+            "resolver_dohpath_metainfo_resolved",
+            "s.dohpath, s.last_update_ts",
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE resolver_dohpath_metainfo_unique AS
+            SELECT DISTINCT ON (resolver_id)
+                resolver_id, dohpath, last_update_ts
+            FROM resolver_dohpath_metainfo_resolved
+            ORDER BY resolver_id, last_update_ts DESC
+            """
+        )
+        cursor.execute("SELECT COUNT(*) FROM resolver_dohpath_metainfo_stage")
+        doh_candidates = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_dohpath_metainfo_resolved")
+        doh_resolved = cursor.fetchone()[0]
+        if doh_candidates - doh_resolved:
+            _log_missing_resolver_rows(cursor, "resolver_dohpath", "resolver_dohpath_metainfo_stage")
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_dohpath_metainfo_unique s
+            LEFT JOIN resolver_dohpath t ON t.resolver_id = s.resolver_id
+            WHERE t.resolver_id IS NULL
+            """
+        )
+        doh_inserted = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_dohpath_metainfo_unique s
+            JOIN resolver_dohpath t ON t.resolver_id = s.resolver_id
+            WHERE s.last_update_ts > t.last_update_ts
+            """
+        )
+        doh_updated = cursor.fetchone()[0]
+
+        _create_metainfo_stage(
+            cursor,
+            "resolver_ipv6hint_metainfo_stage",
+            ipv6_rows,
+            [
+                ("resolver_ip", "INET"),
+                ("ipv6", "INET"),
+                ("source", "TEXT"),
+                ("last_update_ts", "TIMESTAMPTZ"),
+            ],
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE resolver_ipv6hint_metainfo_resolved AS
+            SELECT
+                r.resolver_id,
+                s.ipv6,
+                s.source,
+                s.last_update_ts
+            FROM resolver_ipv6hint_metainfo_stage s
+            JOIN resolver r ON r.ip = s.resolver_ip
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE resolver_ipv6hint_metainfo_unique AS
+            SELECT DISTINCT ON (ipv6)
+                resolver_id,
+                ipv6,
+                source,
+                last_update_ts
+            FROM resolver_ipv6hint_metainfo_resolved
+            ORDER BY ipv6, last_update_ts DESC, resolver_id
+            """
+        )
+        cursor.execute("SELECT COUNT(*) FROM resolver_ipv6hint_metainfo_stage")
+        ipv6_candidates = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_ipv6hint_metainfo_resolved")
+        ipv6_resolved = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM resolver_ipv6hint_metainfo_unique")
+        ipv6_unique = cursor.fetchone()[0]
+        if ipv6_candidates - ipv6_resolved:
+            _log_missing_resolver_rows(cursor, "resolver_ipv6hint", "resolver_ipv6hint_metainfo_stage")
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM resolver_ipv6hint_metainfo_unique s
+            LEFT JOIN resolver r ON r.ip = s.ipv6
+            WHERE r.ip IS NULL
+            """
+        )
+        ipv6_inserted = cursor.fetchone()[0]
+
+        if not dry_run:
+            cursor.execute(
+                """
+                INSERT INTO resolver_dohpath (resolver_id, dohpath, last_update_ts)
+                SELECT s.resolver_id, s.dohpath, s.last_update_ts
+                FROM resolver_dohpath_metainfo_unique s
+                LEFT JOIN resolver_dohpath t ON t.resolver_id = s.resolver_id
+                WHERE t.resolver_id IS NULL
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE resolver_dohpath t
+                SET dohpath = s.dohpath,
+                    last_update_ts = s.last_update_ts
+                FROM resolver_dohpath_metainfo_unique s
+                WHERE t.resolver_id = s.resolver_id
+                  AND s.last_update_ts > t.last_update_ts
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO resolver (ip, resolver_id, is_public, last_update_ts, source)
+                SELECT s.ipv6, s.resolver_id, TRUE, s.last_update_ts, s.source
+                FROM resolver_ipv6hint_metainfo_unique s
+                LEFT JOIN resolver r ON r.ip = s.ipv6
+                WHERE r.ip IS NULL
+                ON CONFLICT (ip) DO NOTHING
+                """
+            )
+            connection.commit()
+        else:
+            connection.rollback()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        close_db_connection(cursor)
+
+    reports["dohpath"] = {
+        "candidates": doh_candidates,
+        "inserted": doh_inserted,
+        "updated": doh_updated,
+        "skipped": max(doh_candidates - doh_inserted - doh_updated, 0),
+        "missing_resolver": doh_candidates - doh_resolved,
+    }
+    reports["ipv6hint"] = {
+        "candidates": ipv6_candidates,
+        "inserted": ipv6_inserted,
+        "updated": 0,
+        "skipped": max(ipv6_candidates - ipv6_inserted, 0),
+        "duplicate": ipv6_resolved - ipv6_unique,
+        "missing_resolver": ipv6_candidates - ipv6_resolved,
+    }
+    for module, report in reports.items():
+        logger.info(
+            "svcb_{module}: candidates={candidates}, inserted={inserted}, updated={updated}, skipped={skipped}, missing_resolver={missing_resolver}",
+            module=module,
+            candidates=report.get("candidates", 0),
+            inserted=report.get("inserted", 0),
+            updated=report.get("updated", 0),
+            skipped=report.get("skipped", 0),
+            missing_resolver=report.get("missing_resolver", 0),
+        )
+    return reports
 
 
 def import_resolvers(
