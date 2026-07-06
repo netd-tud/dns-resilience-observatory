@@ -321,16 +321,32 @@ Note: both ASGI and WSGI entry points are included; use ASGI for async/WebSocket
 
 ### DNS Resilience Endpoints
 
-- `GET /api/dns-resilience/resolver/{resolver-ip}`
-- `GET /api/dns-resilience/prefix/{network-prefix}`
-- `GET /api/dns-resilience/ASN/{asn}`
-- `GET /api/dns-resilience/country/{country}`
+Interactive API docs are available at `/api/docs/`; the OpenAPI document is available at `/api/openapi.json`.
 
-### Resolver Anycast Summary
+All list-style endpoints accept `?limit=N` with `1 <= N <= 1000` and return matching resolver rows with metadata such as ASN, prefix, country, domains, and `protocol:port` services.
 
-- `GET /api/dns-resilience/resolver/{resolver-ip}/summary`
-	- Returns resolver presence in the resolver table, anycast presence, unique anycast site count,
-		unique country count, unique ASN count, and per-country anycast site counts with coordinates.
+| Endpoint | Usage |
+| --- | --- |
+| `GET /api/dns-resilience/resolver/{resolver_ip}` | Resolver lookup by IPv4 or IPv6 address. |
+| `GET /api/dns-resilience/prefix/{network_prefix}` | Resolver lookup by CIDR prefix. URL-encode `/`, for example `9.9.9.0%252F24` when called through the frontend-style double encoding. |
+| `GET /api/dns-resilience/ASN/{asn}` | Resolver and aggregate lookup by ASN, e.g. `AS3320` or `3320`. |
+| `GET /api/dns-resilience/country/{country}` | Resolver and aggregate lookup by ISO country code, alpha-2 or alpha-3. |
+| `GET /api/dns-resilience/domain/{domain}` | Resolver lookup by associated resolver domain, e.g. `one.one.one.one`. |
+| `GET /api/dns-resilience/protocol/{service}` | Resolver lookup by protocol or `protocol:port`, e.g. `doh`, `doh3:443`, `dot:853`, `doq:853`, `dotcp:53`, or `doudp:53`. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/summary` | Resolver summary for the frontend: metadata, domains, sibling IPs, QMIN, anycast, spoofing, and open-forwarder relay aggregates. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/qmin` | QMIN data for one resolver IP. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/anycast` | Anycast prefix coverage for one resolver IP. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/anycast/sites` | Anycast backend countries and ASNs for one resolver IP. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/spoofing` | Spoofing prefix data containing one resolver IP. |
+| `GET /api/dns-resilience/ASN/{asn}/qmin` | QMIN aggregate data for an ASN. |
+| `GET /api/dns-resilience/ASN/{asn}/anycast` | Anycast prefix coverage for an ASN. |
+| `GET /api/dns-resilience/ASN/{asn}/anycast/sites` | Anycast backend countries and ASNs for an ASN. |
+| `GET /api/dns-resilience/ASN/{asn}/spoofing` | Spoofing aggregate data for an ASN. |
+| `GET /api/dns-resilience/country/{country}/qmin` | QMIN aggregate data for a country. |
+| `GET /api/dns-resilience/country/{country}/anycast` | Anycast prefix coverage for a country. |
+| `GET /api/dns-resilience/country/{country}/anycast/sites` | Anycast backend countries and ASNs for a country. |
+| `GET /api/dns-resilience/country/{country}/spoofing` | Spoofing aggregate data for a country. |
+| `GET /api/dns-resilience/dashboard/summary` | Global dashboard summary used by the frontend start page. |
 
 ### Current Database Schema
 
