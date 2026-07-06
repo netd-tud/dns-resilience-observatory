@@ -346,7 +346,18 @@ All list-style endpoints accept `?limit=N` with `1 <= N <= 1000` and return matc
 | `GET /api/dns-resilience/country/{country}/anycast` | Anycast prefix coverage for a country. |
 | `GET /api/dns-resilience/country/{country}/anycast/sites` | Anycast backend countries and ASNs for a country. |
 | `GET /api/dns-resilience/country/{country}/spoofing` | Spoofing aggregate data for a country. |
-| `GET /api/dns-resilience/dashboard/summary` | Global dashboard summary used by the frontend start page. |
+| `GET /api/dns-resilience/country/{country}/dnssec` | DNSSEC validation data for a country. |
+| `GET /api/dns-resilience/global/ipv4` | Global IPv4 recursive resolver count and public share. |
+| `GET /api/dns-resilience/global/ipv6` | Global IPv6 recursive resolver count and public share. |
+| `GET /api/dns-resilience/global/dual-stack` | Number of resolver IDs with both IPv4 and IPv6 addresses. |
+| `GET /api/dns-resilience/global/scope` | Global observatory coverage: resolver count, unique ASNs, unique country codes, latest resolver observation. |
+| `GET /api/dns-resilience/global/anycast` | Global resolver anycast count and top resolver IPs by anycast backend sites. |
+| `GET /api/dns-resilience/global/qmin` | Global QMIN measurement summary and parameter distributions. |
+| `GET /api/dns-resilience/global/protocols` | Resolver service usage by protocol, port, and protocol-port combination. |
+| `GET /api/dns-resilience/global/spoofing` | Resolver IPs located in networks that allow spoofing. |
+| `GET /api/dns-resilience/global/countries` | Resolver deployment by country code, including coordinates for the world map and top 10 countries. |
+| `GET /api/dns-resilience/global/asns` | Top 10 ASNs by resolver count. |
+| `GET /api/dns-resilience/global/dnssec` | Country-code DNSSEC measurement count and average validation percentage. |
 
 ### Current Database Schema
 

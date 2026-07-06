@@ -75,48 +75,6 @@ class SpoofingPrefixSummary(Schema):
     routedspoof: Optional[str] = Field(None, description="Routed spoofing result")
 
 
-class ResolverCountryDashboard(Schema):
-    country: str = Field(..., description="Country code")
-    count: int = Field(..., description="Resolver count")
-    public_count: int = Field(..., description="Public resolver count")
-    closed_count: int = Field(..., description="Closed resolver count")
-    latitude: Optional[float] = Field(None, description="Country latitude")
-    longitude: Optional[float] = Field(None, description="Country longitude")
-
-
-class ResolverProtocolDashboard(Schema):
-    protocol: str = Field(..., description="Resolver service protocol")
-    count: int = Field(..., description="Resolvers supporting this protocol")
-    percent: float = Field(..., description="Share of all resolvers supporting this protocol")
-
-
-class ResolverDashboardSummaryResponse(Schema):
-    resolver_count: int = Field(..., description="Total resolver count")
-    resolver_ipv4_count: int = Field(..., description="IPv4 resolver count")
-    resolver_ipv6_count: int = Field(..., description="IPv6 resolver count")
-    resolver_public_count: int = Field(..., description="Public resolver count")
-    resolver_closed_count: int = Field(..., description="Closed resolver count")
-    resolver_public_pc: float = Field(..., description="Public resolver percentage")
-    resolver_closed_pc: float = Field(..., description="Closed resolver percentage")
-    resolver_anycast_count: int = Field(..., description="Resolvers covered by anycast prefixes")
-    resolver_tcp_count: int = Field(..., description="Resolvers supporting TCP")
-    resolver_udp_count: int = Field(..., description="Resolvers supporting UDP")
-    resolver_tcp_udp_count: int = Field(..., description="Resolvers supporting both TCP and UDP")
-    resolver_protocols: List[ResolverProtocolDashboard] = Field(default_factory=list)
-    resolver_countries: List[ResolverCountryDashboard] = Field(default_factory=list)
-    forwarder_count: int = Field(..., description="Total forwarder count")
-    forwarder_public_count: int = Field(..., description="Public forwarder count")
-    forwarder_non_public_count: int = Field(..., description="Non-public forwarder count")
-    forwarder_public_pc: float = Field(..., description="Public forwarder percentage")
-    forwarder_tcp_count: int = Field(..., description="Forwarders supporting TCP")
-    forwarder_udp_count: int = Field(..., description="Forwarders supporting UDP")
-    forwarder_tcp_udp_count: int = Field(..., description="Forwarders supporting both TCP and UDP")
-    dnssec_country_count: int = Field(..., description="Countries with DNSSEC measurements")
-    dnssec_validating_avg: float = Field(..., description="Average country DNSSEC validating percentage")
-    dnssec_partial_validating_avg: float = Field(..., description="Average country partial validating percentage")
-    last_observation_ts: Optional[datetime] = Field(None, description="Latest dashboard observation timestamp")
-
-
 class ResolverAnycastSummaryResponse(Schema):
     resolver_ip: str = Field(..., description="Resolver IP address")
     resolver_found: bool = Field(..., description="True if resolver IP exists in resolver table")

@@ -1,14 +1,10 @@
 from django.conf import settings
 from django.core.cache import cache
-from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
-import json
 import threading
 import time
-
-from resilience.services import dns_resilience_service
 
 
 RESOLVER_DASHBOARD_CACHE_KEY = "frontend:resolver-dashboard-html:v1"
@@ -17,13 +13,9 @@ RESOLVER_DASHBOARD_CACHE_TTL = 60 * 60
 
 
 def _render_resolver_dashboard_html() -> str:
-    dashboard_summary = dns_resilience_service.get_dashboard_summary()
     return render_to_string(
         "frontend/resolver.html",
-        {
-            "api_base_url": settings.API_BASE_URL,
-            "dashboard_summary_json": json.dumps(dashboard_summary, cls=DjangoJSONEncoder),
-        },
+        {"api_base_url": settings.API_BASE_URL},
     )
 
 

@@ -873,50 +873,280 @@ class DNSResilienceService:
         }
 
     @cached(ttl=120)
-    def get_dashboard_summary(self) -> dict:
-        resolver_row = self._fetchone(
+    def get_global_ip_version_summary(self, family: int) -> dict:
+        row = self._fetchone(
             """
             SELECT
                 COUNT(*)::INTEGER AS resolver_count,
-                COUNT(*) FILTER (WHERE family(ip) = 4)::INTEGER AS resolver_ipv4_count,
-                COUNT(*) FILTER (WHERE family(ip) = 6)::INTEGER AS resolver_ipv6_count,
-                COUNT(*) FILTER (WHERE is_public IS TRUE)::INTEGER AS resolver_public_count,
-                COUNT(*) FILTER (WHERE is_public IS FALSE)::INTEGER AS resolver_closed_count,
+                COUNT(*) FILTER (WHERE is_public IS TRUE)::INTEGER AS public_count,
                 MAX(last_update_ts) AS last_observation_ts
+            FROM resolver
+            WHERE family(ip) = %s
+            """,
+            [family],
+        ) or {}
+        resolver_count = row.get("resolver_count", 0) or 0
+        public_count = row.get("public_count", 0) or 0
+        return {
+            "family": family,
+            "resolver_count": resolver_count,
+            "public_count": public_count,
+            "public_percent": self._pc(public_count, resolver_count),
+            "last_observation_ts": row.get("last_observation_ts"),
+        }
+
+    @cached(ttl=120)
+    def get_global_dual_stack_summary(self) -> dict:
+        row = self._fetchone(
+            """
+            SELECT COUNT(*)::INTEGER AS dual_stack_count
+            FROM (
+                SELECT resolver_id
+                FROM resolver
+                GROUP BY resolver_id
+                HAVING BOOL_OR(family(ip) = 4) AND BOOL_OR(family(ip) = 6)
+            ) dual_stack
+            """
+        ) or {}
+        return {"dual_stack_count": row.get("dual_stack_count", 0) or 0}
+
+    @cached(ttl=120)
+    def get_global_scope_summary(self) -> dict:
+        row = self._fetchone(
+            """
+            SELECT
+                (SELECT COUNT(*)::INTEGER FROM resolver) AS resolver_count,
+                (SELECT COUNT(DISTINCT asn)::INTEGER FROM resolver_asn WHERE asn IS NOT NULL) AS resolver_unique_asn_count,
+                (SELECT COUNT(DISTINCT country)::INTEGER FROM resolver_location WHERE country IS NOT NULL) AS resolver_unique_country_count,
+                (SELECT MAX(last_update_ts) FROM resolver) AS last_observation_ts
+            """
+        ) or {}
+        return {
+            "resolver_count": row.get("resolver_count", 0) or 0,
+            "resolver_unique_asn_count": row.get("resolver_unique_asn_count", 0) or 0,
+            "resolver_unique_country_count": row.get("resolver_unique_country_count", 0) or 0,
+            "last_observation_ts": row.get("last_observation_ts"),
+        }
+
+    @cached(ttl=120)
+    def get_global_anycast_summary(self) -> dict:
+        row = self._fetchone(
+            """
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (
+                    WHERE EXISTS (SELECT 1 FROM anycast a WHERE resolver.ip <<= a.prefix)
+                )::INTEGER AS resolver_anycast_count
             FROM resolver
             """
         ) or {}
-        protocol_row = self._fetchone(
+        top_anycast_resolvers = self._fetchall(
+            """
+            WITH resolver_anycast_prefix AS (
+                SELECT r.ip, a.prefix
+                FROM resolver r
+                JOIN anycast a ON r.ip <<= a.prefix
+            ),
+            country_agg AS (
+                SELECT
+                    rap.ip,
+                    COALESCE(SUM(ac.country_count), 0)::INTEGER AS anycast_site_count,
+                    COUNT(DISTINCT ac.country)::INTEGER AS anycast_country_count
+                FROM resolver_anycast_prefix rap
+                LEFT JOIN anycast_country_backend ac ON ac.prefix = rap.prefix
+                GROUP BY rap.ip
+            ),
+            asn_agg AS (
+                SELECT
+                    rap.ip,
+                    COUNT(DISTINCT ab.asn)::INTEGER AS anycast_asn_count
+                FROM resolver_anycast_prefix rap
+                LEFT JOIN anycast_asn_backend ab ON ab.prefix = rap.prefix
+                GROUP BY rap.ip
+            )
+            SELECT
+                host(c.ip) AS ip,
+                c.anycast_site_count,
+                c.anycast_country_count,
+                COALESCE(a.anycast_asn_count, 0)::INTEGER AS anycast_asn_count
+            FROM country_agg c
+            LEFT JOIN asn_agg a ON a.ip = c.ip
+            ORDER BY c.anycast_site_count DESC, c.anycast_country_count DESC, COALESCE(a.anycast_asn_count, 0) DESC, host(c.ip)
+            LIMIT 5
+            """
+        )
+        resolver_count = row.get("resolver_count", 0) or 0
+        resolver_anycast_count = row.get("resolver_anycast_count", 0) or 0
+        return {
+            "resolver_count": resolver_count,
+            "resolver_anycast_count": resolver_anycast_count,
+            "resolver_anycast_pc": self._pc(resolver_anycast_count, resolver_count),
+            "top_anycast_resolvers": top_anycast_resolvers,
+        }
+
+    @cached(ttl=120)
+    def get_global_qmin_summary(self) -> dict:
+        row = self._fetchone(
             """
             SELECT
-                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol IN ('tcp', 'dotcp'))::INTEGER AS resolver_tcp_count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE protocol IN ('udp', 'doudp'))::INTEGER AS resolver_udp_count,
-                COUNT(DISTINCT resolver_id) FILTER (
-                    WHERE resolver_id IN (SELECT resolver_id FROM resolver_service WHERE protocol IN ('tcp', 'dotcp'))
-                      AND protocol IN ('udp', 'doudp')
-                )::INTEGER AS resolver_tcp_udp_count
-            FROM resolver_service
+                COUNT(DISTINCT resolver_id)::INTEGER AS qmin_measured_count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE qmin = 'yes')::INTEGER AS qmin_enabled_count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE max_minimise_count > 10)::INTEGER AS qmin_amplification_risk_count
+            FROM qmin_resolver
             """
         ) or {}
+        qmin_max_minimise = self._fetchall(
+            """
+            SELECT max_minimise_count AS value, COUNT(*)::INTEGER AS count
+            FROM qmin_resolver
+            WHERE max_minimise_count IS NOT NULL
+            GROUP BY max_minimise_count
+            ORDER BY count DESC, max_minimise_count
+            LIMIT 8
+            """
+        )
+        qmin_minimize_one_lab = self._fetchall(
+            """
+            SELECT minimize_one_lab AS value, COUNT(*)::INTEGER AS count
+            FROM qmin_resolver
+            WHERE minimize_one_lab IS NOT NULL
+            GROUP BY minimize_one_lab
+            ORDER BY count DESC, minimize_one_lab
+            LIMIT 8
+            """
+        )
+        measured = row.get("qmin_measured_count", 0) or 0
+        enabled = row.get("qmin_enabled_count", 0) or 0
+        risk = row.get("qmin_amplification_risk_count", 0) or 0
+        return {
+            "qmin_measured_count": measured,
+            "qmin_enabled_count": enabled,
+            "qmin_enabled_pc": self._pc(enabled, measured),
+            "qmin_amplification_risk_count": risk,
+            "qmin_amplification_risk_pc": self._pc(risk, measured),
+            "qmin_max_minimise_distribution": qmin_max_minimise,
+            "qmin_minimize_one_lab_distribution": qmin_minimize_one_lab,
+        }
+
+    @cached(ttl=120)
+    def get_global_protocol_summary(self) -> dict:
+        total_row = self._fetchone("SELECT COUNT(DISTINCT resolver_id)::INTEGER AS resolver_count FROM resolver") or {}
+        resolver_count = total_row.get("resolver_count", 0) or 0
         protocol_rows = self._fetchall(
             """
-            SELECT
-                protocol,
-                COUNT(DISTINCT resolver_id)::INTEGER AS count
+            SELECT protocol, COUNT(DISTINCT resolver_id)::INTEGER AS count
             FROM resolver_service
-            WHERE protocol IS NOT NULL
-              AND TRIM(protocol) <> ''
+            WHERE protocol IS NOT NULL AND TRIM(protocol) <> ''
             GROUP BY protocol
             ORDER BY count DESC, protocol
             """
         )
-        resolver_anycast = self._fetchone(
+        port_rows = self._fetchall(
             """
-            SELECT COUNT(*)::INTEGER AS resolver_anycast_count
-            FROM resolver r
-            WHERE EXISTS (SELECT 1 FROM anycast a WHERE r.ip <<= a.prefix)
+            SELECT port, COUNT(DISTINCT resolver_id)::INTEGER AS count
+            FROM resolver_service
+            WHERE port IS NOT NULL
+            GROUP BY port
+            ORDER BY count DESC, port
+            """
+        )
+        service_rows = self._fetchall(
+            """
+            SELECT protocol, port, COUNT(DISTINCT resolver_id)::INTEGER AS count
+            FROM resolver_service
+            WHERE protocol IS NOT NULL AND TRIM(protocol) <> '' AND port IS NOT NULL
+            GROUP BY protocol, port
+            ORDER BY count DESC, protocol, port
+            """
+        )
+        return {
+            "resolver_count": resolver_count,
+            "protocols": [
+                {"protocol": row["protocol"], "count": row["count"], "percent": self._pc(row["count"], resolver_count)}
+                for row in protocol_rows
+            ],
+            "ports": [
+                {"port": row["port"], "count": row["count"], "percent": self._pc(row["count"], resolver_count)}
+                for row in port_rows
+            ],
+            "services": [
+                {
+                    "protocol": row["protocol"],
+                    "port": row["port"],
+                    "count": row["count"],
+                    "percent": self._pc(row["count"], resolver_count),
+                }
+                for row in service_rows
+            ],
+        }
+
+    @cached(ttl=120)
+    def get_global_spoofing_environment_summary(self) -> dict:
+        total_row = self._fetchone("SELECT COUNT(*)::INTEGER AS resolver_count FROM resolver") or {}
+        row = self._fetchone(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)::INTEGER
+                    FROM resolver r
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM spoofing s
+                        WHERE r.ip <<= s.prefix
+                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                    )
+                ) AS resolver_spoofing_allow_count,
+                (
+                    SELECT COUNT(*)::INTEGER
+                    FROM resolver r
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM spoofing s
+                        WHERE r.ip <<= s.prefix
+                          AND LOWER(COALESCE(s.routedspoof, '')) = 'blocked'
+                    )
+                ) AS resolver_spoofing_blocked_count,
+                (
+                    SELECT COUNT(DISTINCT ra.resolver_id)::INTEGER
+                    FROM resolver_asn ra
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM spoofing_asn sa
+                        JOIN spoofing s ON s.prefix = sa.prefix
+                        WHERE sa.asn = ra.asn
+                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                    )
+                ) AS resolver_spoofing_allow_asn_resolver_count,
+                (
+                    SELECT COUNT(DISTINCT ra.asn)::INTEGER
+                    FROM resolver_asn ra
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM spoofing_asn sa
+                        JOIN spoofing s ON s.prefix = sa.prefix
+                        WHERE sa.asn = ra.asn
+                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                    )
+                ) AS spoofing_allow_asn_match_count
             """
         ) or {}
+        resolver_count = total_row.get("resolver_count", 0) or 0
+        allow_count = row.get("resolver_spoofing_allow_count", 0) or 0
+        blocked_count = row.get("resolver_spoofing_blocked_count", 0) or 0
+        asn_resolver_count = row.get("resolver_spoofing_allow_asn_resolver_count", 0) or 0
+        return {
+            "resolver_count": resolver_count,
+            "resolver_spoofing_allow_count": allow_count,
+            "resolver_spoofing_allow_pc": self._pc(allow_count, resolver_count),
+            "resolver_spoofing_blocked_count": blocked_count,
+            "resolver_spoofing_blocked_pc": self._pc(blocked_count, resolver_count),
+            "resolver_spoofing_allow_asn_resolver_count": asn_resolver_count,
+            "resolver_spoofing_allow_asn_resolver_pc": self._pc(asn_resolver_count, resolver_count),
+            "spoofing_allow_asn_match_count": row.get("spoofing_allow_asn_match_count", 0) or 0,
+        }
+
+    @cached(ttl=120)
+    def get_global_country_summary(self) -> dict:
         countries = self._fetchall(
             """
             SELECT
@@ -934,67 +1164,37 @@ class DNSResilienceService:
             LIMIT 250
             """
         )
-        forwarder_row = self._fetchone(
+        return {"countries": countries, "top_countries": countries[:10]}
+
+    @cached(ttl=120)
+    def get_global_asn_summary(self) -> dict:
+        rows = self._fetchall(
+            """
+            SELECT asn, COUNT(DISTINCT resolver_id)::INTEGER AS count
+            FROM resolver_asn
+            WHERE asn IS NOT NULL
+            GROUP BY asn
+            ORDER BY count DESC, asn
+            LIMIT 10
+            """
+        )
+        return {"top_asns": rows}
+
+    @cached(ttl=120)
+    def get_global_dnssec_summary(self) -> dict:
+        row = self._fetchone(
             """
             SELECT
-                COUNT(*)::INTEGER AS forwarder_count,
-                COUNT(*) FILTER (WHERE is_public IS TRUE)::INTEGER AS forwarder_public_count,
-                COUNT(*) FILTER (WHERE is_public IS DISTINCT FROM TRUE)::INTEGER AS forwarder_non_public_count,
-                MAX(last_update_ts) AS last_update_ts
-            FROM forwarder
-            """
-        ) or {}
-        dnssec_row = self._fetchone(
-            """
-            SELECT
-                COUNT(*)::INTEGER AS dnssec_country_count,
+                COUNT(DISTINCT country)::INTEGER AS dnssec_country_count,
                 COALESCE(AVG(validating_pc), 0)::DOUBLE PRECISION AS dnssec_validating_avg,
-                COALESCE(AVG(partial_validating_pc), 0)::DOUBLE PRECISION AS dnssec_partial_validating_avg,
                 MAX(last_update_ts) AS last_update_ts
             FROM dnssec_country
             """
         ) or {}
-        resolver_count = resolver_row.get("resolver_count", 0) or 0
-        resolver_public_count = resolver_row.get("resolver_public_count", 0) or 0
-        forwarder_count = forwarder_row.get("forwarder_count", 0) or 0
-        forwarder_public_count = forwarder_row.get("forwarder_public_count", 0) or 0
-        latest_values = [
-            resolver_row.get("last_observation_ts"),
-            forwarder_row.get("last_update_ts"),
-            dnssec_row.get("last_update_ts"),
-        ]
         return {
-            "resolver_count": resolver_row.get("resolver_count", 0) or 0,
-            "resolver_ipv4_count": resolver_row.get("resolver_ipv4_count", 0) or 0,
-            "resolver_ipv6_count": resolver_row.get("resolver_ipv6_count", 0) or 0,
-            "resolver_public_count": resolver_public_count,
-            "resolver_closed_count": resolver_row.get("resolver_closed_count", 0) or 0,
-            "resolver_anycast_count": resolver_anycast.get("resolver_anycast_count", 0) or 0,
-            "resolver_tcp_count": protocol_row.get("resolver_tcp_count", 0) or 0,
-            "resolver_udp_count": protocol_row.get("resolver_udp_count", 0) or 0,
-            "resolver_tcp_udp_count": protocol_row.get("resolver_tcp_udp_count", 0) or 0,
-            "resolver_protocols": [
-                {
-                    "protocol": row["protocol"],
-                    "count": row["count"],
-                    "percent": self._pc(row["count"], resolver_count),
-                }
-                for row in protocol_rows
-            ],
-            "resolver_public_pc": round((resolver_public_count / resolver_count) * 100, 2) if resolver_count else 0,
-            "resolver_closed_pc": round(((resolver_row.get("resolver_closed_count", 0) or 0) / resolver_count) * 100, 2) if resolver_count else 0,
-            "resolver_countries": countries,
-            "forwarder_count": forwarder_count,
-            "forwarder_public_count": forwarder_public_count,
-            "forwarder_non_public_count": forwarder_row.get("forwarder_non_public_count", 0) or 0,
-            "forwarder_public_pc": round((forwarder_public_count / forwarder_count) * 100, 2) if forwarder_count else 0,
-            "forwarder_tcp_count": 0,
-            "forwarder_udp_count": 0,
-            "forwarder_tcp_udp_count": 0,
-            "dnssec_country_count": dnssec_row.get("dnssec_country_count", 0) or 0,
-            "dnssec_validating_avg": round(float(dnssec_row.get("dnssec_validating_avg", 0) or 0), 2),
-            "dnssec_partial_validating_avg": round(float(dnssec_row.get("dnssec_partial_validating_avg", 0) or 0), 2),
-            "last_observation_ts": max((value for value in latest_values if value is not None), default=None),
+            "dnssec_country_count": row.get("dnssec_country_count", 0) or 0,
+            "dnssec_validating_avg": round(float(row.get("dnssec_validating_avg", 0) or 0), 2),
+            "last_update_ts": row.get("last_update_ts"),
         }
 
     @cached()

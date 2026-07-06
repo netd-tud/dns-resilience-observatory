@@ -53,7 +53,6 @@
         crossorigin=""
     ></script>
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-    <script id="cached-dashboard-summary" type="application/json">{{ dashboard_summary_json|default:"null"|safe }}</script>
     <script>
         const apiBaseUrl = "{{ api_base_url }}".replace(/\/+$/, "");
         const input = document.getElementById("query-input");
@@ -61,7 +60,6 @@
         const statusText = document.getElementById("status-text");
         const statusDot = document.querySelector(".status-dot");
         const dashboardSummary = document.getElementById("dashboard-summary");
-        const cachedDashboardSummary = JSON.parse(document.getElementById("cached-dashboard-summary").textContent || "null");
 
         function loadPlotly() {
             if (window.Plotly) {
@@ -89,6 +87,21 @@
 
         function formatNumber(value) {
             return Number(value || 0).toLocaleString();
+        }
+
+        function formatEngineering(value) {
+            const number = Number(value || 0);
+            const abs = Math.abs(number);
+            if (abs >= 1_000_000_000) {
+                return `${(number / 1_000_000_000).toFixed(1)}G`;
+            }
+            if (abs >= 1_000_000) {
+                return `${(number / 1_000_000).toFixed(1)}M`;
+            }
+            if (abs >= 1_000) {
+                return `${(number / 1_000).toFixed(1)}k`;
+            }
+            return number.toFixed(0);
         }
 
         function formatPercent(value) {
@@ -214,74 +227,505 @@
             }).join("");
         }
 
-        function renderDashboard(summary) {
-            const mapId = `resolver-country-map-${Date.now()}`;
-            const latest = summary.last_observation_ts ? new Date(summary.last_observation_ts).toLocaleString() : "-";
-            const resolverTotal = Number(summary.resolver_count || 0);
-            const resolverAnycast = Number(summary.resolver_anycast_count || 0);
-            const resolverOther = Math.max(resolverTotal - resolverAnycast, 0);
-            const resolverAnycastPc = resolverTotal ? (resolverAnycast / resolverTotal) * 100 : 0;
-            const resolverTcpPc = resolverTotal ? (Number(summary.resolver_tcp_count || 0) / resolverTotal) * 100 : 0;
-            const forwarderTotal = Number(summary.forwarder_count || 0);
-            const forwarderTcpPc = forwarderTotal ? (Number(summary.forwarder_tcp_count || 0) / forwarderTotal) * 100 : 0;
-            dashboardSummary.innerHTML = `
-                <div class="dashboard-section resolver-overview">
-                    <div class="section-header">
+        function resolverFamilyCard(label, total, publicCount) {
+            const isLoading = total == null || publicCount == null;
+            const safeTotal = Number(total || 0);
+            const safePublic = Number(publicCount || 0);
+            const publicPc = safeTotal ? (safePublic / safeTotal) * 100 : 0;
+            const totalLabel = isLoading ? loadingText() : formatEngineering(safeTotal);
+            const publicLabel = isLoading ? `<span class="spinner" aria-hidden="true"></span>` : formatEngineering(safePublic);
+            const publicPcLabel = isLoading ? "Loading" : `${publicPc.toFixed(1)}%`;
+            return `
+                <div class="resolver-family-card">
+                    <div class="resolver-family-head">
                         <div>
-                            <h2>Resolvers</h2>
-                            <p>Last observation: ${latest}</p>
+                            <div class="resolver-family-name">${label}</div>
+                            <div class="resolver-family-count" title="${isLoading ? "Loading" : formatNumber(safeTotal)}">${totalLabel}</div>
+                            <div class="resolver-family-detail">Recursive Resolver</div>
                         </div>
-                    </div>
-                    <div class="metric-grid">
-                        ${summaryCard("Resolvers", resolverTotal, "Public", summary.resolver_public_count, "Non-public", summary.resolver_closed_count, summary.resolver_public_pc, `${formatNumber(summary.resolver_ipv4_count)} IPv4 / ${formatNumber(summary.resolver_ipv6_count)} IPv6`)}
-                        ${summaryCard("Resolver protocols", resolverTotal, "TCP", summary.resolver_tcp_count, "UDP", summary.resolver_udp_count, resolverTcpPc, `${formatNumber(summary.resolver_tcp_udp_count)} support both`)}
-                        ${summaryCard("Anycast", resolverAnycast, "Anycast", resolverAnycast, "Other", resolverOther, resolverAnycastPc, `${formatPercent(resolverAnycastPc)} of resolvers`)}
-                        ${protocolGaugeCards(summary.resolver_protocols)}
-                    </div>
-                    <div class="map-wrap dashboard-map" id="${mapId}"></div>
-                </div>
-
-                <div class="dashboard-section split-section">
-                    <div>
-                        <h2>Forwarders</h2>
-                        <div class="metric-grid compact">
-                            ${summaryCard("Forwarders", forwarderTotal, "Public", summary.forwarder_public_count, "Non-public", summary.forwarder_non_public_count, summary.forwarder_public_pc)}
-                            ${summaryCard("Forwarder protocols", forwarderTotal, "TCP", summary.forwarder_tcp_count, "UDP", summary.forwarder_udp_count, forwarderTcpPc, `${formatNumber(summary.forwarder_tcp_udp_count)} support both`)}
-                        </div>
-                    </div>
-                    <div>
-                        <h2>DNSSEC Country Validation</h2>
-                        <div class="metric-grid compact">
-                            ${metricCard("Countries measured", formatNumber(summary.dnssec_country_count))}
-                            ${gauge("Validating", summary.dnssec_validating_avg, "Average country-level validation")}
-                            ${gauge("Partial validating", summary.dnssec_partial_validating_avg, "Average country-level partial validation")}
+                        <div class="resolver-public-block">
+                            <div class="resolver-public-title">Of which are public</div>
+                            <div class="resolver-public-gauge" style="--value: ${Math.max(0, Math.min(100, publicPc))};">
+                                <div class="resolver-public-gauge-inner">
+                                    <div>
+                                        <div class="resolver-public-count">${publicLabel}</div>
+                                        <div class="resolver-public-percent">${publicPcLabel}</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
-            initResolverCountryMap(mapId, summary.resolver_countries || []);
+        }
+
+        function dualStackCard(count) {
+            const isLoading = count == null;
+            return `
+                <div class="resolver-dual-stack-card">
+                    <span>Number of dual stack resolvers:</span>
+                    <strong title="${isLoading ? "Loading" : formatNumber(count)}">${isLoading ? loadingText() : formatEngineering(count)}</strong>
+                </div>
+            `;
+        }
+
+        function topAnycastResolverTable(rows) {
+            const entries = rows || [];
+            if (!entries.length) {
+                return `<div class="empty">No anycast resolver data available.</div>`;
+            }
+            return `
+                <table class="overview-table">
+                    <thead>
+                        <tr>
+                            <th>Resolver IP</th>
+                            <th>Sites</th>
+                            <th>ASNs</th>
+                            <th>Country codes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${entries.map((entry) => `
+                            <tr>
+                                <td><a class="resolver-link" href="/search.html?q=${encodeURIComponent(entry.ip)}">${entry.ip}</a></td>
+                                <td>${formatNumber(entry.anycast_site_count)}</td>
+                                <td>${formatNumber(entry.anycast_asn_count)}</td>
+                                <td>${formatNumber(entry.anycast_country_count)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function qminDistributionBars(rows) {
+            const entries = rows || [];
+            if (!entries.length) {
+                return `<div class="metric-subvalue">No values measured.</div>`;
+            }
+            const maxCount = Math.max(...entries.map((entry) => Number(entry.count || 0)), 1);
+            return `
+                <div class="qmin-bar-group">
+                    ${entries.map((entry) => {
+                        const width = (Number(entry.count || 0) / maxCount) * 100;
+                        return `
+                            <div class="qmin-bar-row">
+                                <span>${entry.value}</span>
+                                <div class="qmin-bar-track"><span class="qmin-bar-fill" style="width: ${width}%"></span></div>
+                                <strong>${formatEngineering(entry.count)}</strong>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function overviewBars(rows, labelKey, linkPrefix = "") {
+            const entries = rows || [];
+            if (!entries.length) {
+                return `<div class="metric-subvalue">No values available.</div>`;
+            }
+            const total = entries.reduce((sum, entry) => sum + Number(entry.count || 0), 0);
+            const maxCount = Math.max(...entries.map((entry) => Number(entry.count || 0)), 1);
+            return `
+                <div class="qmin-bar-group">
+                    ${entries.map((entry) => {
+                        const rawLabel = String(entry[labelKey] ?? "");
+                        const label = linkPrefix
+                            ? `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(linkPrefix + rawLabel)}">${rawLabel}</a>`
+                            : rawLabel;
+                        const count = Number(entry.count || 0);
+                        const width = (count / maxCount) * 100;
+                        const pc = total ? (count / total) * 100 : 0;
+                        return `
+                            <div class="overview-bar-row">
+                                <span>${label}</span>
+                                <div class="qmin-bar-track"><span class="qmin-bar-fill" style="width: ${width}%"></span></div>
+                                <strong>${formatEngineering(count)} (${pc.toFixed(1)}%)</strong>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function protocolBars(rows, key) {
+            const entries = rows || [];
+            if (!entries.length) {
+                return `<div class="metric-subvalue">No protocol data available.</div>`;
+            }
+            const maxCount = Math.max(...entries.map((entry) => Number(entry.count || 0)), 1);
+            return `
+                <div class="qmin-bar-group">
+                    ${entries.map((entry) => {
+                        const label = String(entry[key] ?? "");
+                        const count = Number(entry.count || 0);
+                        const width = (count / maxCount) * 100;
+                        return `
+                            <div class="overview-bar-row">
+                                <span>${label}</span>
+                                <div class="qmin-bar-track"><span class="qmin-bar-fill" style="width: ${width}%"></span></div>
+                                <strong>${formatEngineering(count)} (${formatPercent(entry.percent)})</strong>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function loadingText() {
+            return `<span class="inline-loading"><span class="spinner" aria-hidden="true"></span> Loading...</span>`;
+        }
+
+        function setText(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+            }
+        }
+
+        function setHtml(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.innerHTML = value;
+            }
+        }
+
+        function setLoadingError(id, message = "Failed to load.") {
+            setHtml(id, `<span class="metric-subvalue">${message}</span>`);
+        }
+
+        function renderDashboardShell() {
+            const mapId = `resolver-country-map-${Date.now()}`;
+            dashboardSummary.innerHTML = `
+                <div class="dashboard-section resolver-overview">
+                    <div class="section-header">
+                        <div>
+                            <h2>Recursive Resolver Overview</h2>
+                            <p>Last observation: <span id="dashboard-last-observation">${loadingText()}</span></p>
+                        </div>
+                    </div>
+                    <div class="resolver-overview-grid">
+                        <div class="resolver-stack-column">
+                            <div class="resolver-family-grid">
+                                <div class="dashboard-card-slot" id="dashboard-ipv4-card">${resolverFamilyCard("IPv4", null, null)}</div>
+                                <div class="dashboard-card-slot" id="dashboard-ipv6-card">${resolverFamilyCard("IPv6", null, null)}</div>
+                            </div>
+                            <div class="dashboard-card-slot" id="dashboard-dual-stack-card">${dualStackCard(null)}</div>
+                        </div>
+                        <div class="resolver-spread-card">
+                            <div>
+                                <div class="resolver-spread-title">Global scope of observatory</div>
+                                <div class="metric-subvalue">Overview of DNS resilience observatory coverage.</div>
+                            </div>
+                            <div class="resolver-spread-row">
+                                <span>Unique ASNs</span>
+                                <strong class="resolver-spread-value" id="dashboard-scope-asns">${loadingText()}</strong>
+                            </div>
+                            <div class="resolver-spread-row">
+                                <span>Unique country codes</span>
+                                <strong class="resolver-spread-value" id="dashboard-scope-countries">${loadingText()}</strong>
+                            </div>
+                            <div class="resolver-spread-row">
+                                <span>Total resolvers</span>
+                                <strong class="resolver-spread-value" id="dashboard-scope-total">${loadingText()}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="overview-detail-grid resolver-detail-grid">
+                        <div class="overview-detail-card">
+                            <div class="overview-main-stat">
+                                <div>
+                                    <div class="overview-card-title">Anycast deployed</div>
+                                    <div class="metric-subvalue">Resolvers that have anycast enabled.</div>
+                                </div>
+                                <strong id="dashboard-anycast-count">${loadingText()}</strong>
+                            </div>
+                            <div id="dashboard-anycast-table">${loadingText()}</div>
+                        </div>
+                        <div class="overview-detail-card">
+                            <div>
+                                <div class="overview-card-title">Resolver protocols</div>
+                                <div class="metric-subvalue">Protocols and ports observed in resolver_service.</div>
+                            </div>
+                            <div>
+                                <div class="metric-label">Protocols</div>
+                                <div id="dashboard-protocol-bars">${loadingText()}</div>
+                            </div>
+                            <div>
+                                <div class="metric-label">Ports</div>
+                                <div id="dashboard-port-bars">${loadingText()}</div>
+                            </div>
+                        </div>
+                        <div class="overview-detail-card">
+                            <div class="overview-main-stat">
+                                <div>
+                                    <div class="overview-card-title">Resolver in spoofing environments</div>
+                                </div>
+                                <strong class="overview-value-pair spoofing-danger-value">
+                                    <span id="dashboard-spoofing-count">${loadingText()}</span>
+                                    <span id="dashboard-spoofing-percent">${loadingText()}</span>
+                                </strong>
+                            </div>
+                            <div class="spoofing-asn-summary">
+                                <div class="overview-card-title">
+                                    Resolver deployed in networks that actively block spoofing (measured by
+                                    <a href="https://www.caida.org/projects/spoofer/" target="_blank" rel="noopener">CAIDA Spoofer project</a>)
+                                </div>
+                                <div class="overview-value-pair spoofing-safe-value">
+                                    <strong id="dashboard-spoofing-blocked-count">${loadingText()}</strong>
+                                    <strong id="dashboard-spoofing-blocked-percent">${loadingText()}</strong>
+                                </div>
+                                <div class="overview-card-title">Resolvers in ASes that allow spoofing</div>
+                                <div class="overview-value-pair spoofing-danger-value">
+                                    <strong id="dashboard-spoofing-asn-resolver-count">${loadingText()}</strong>
+                                    <strong id="dashboard-spoofing-asn-resolver-percent">${loadingText()}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overview-detail-card">
+                            <div class="overview-main-stat">
+                                <div>
+                                    <div class="overview-card-title">QMIN measured for</div>
+                                    <div class="metric-subvalue">Resolvers for which we conducted QMIN measurements.</div>
+                                </div>
+                                <strong id="dashboard-qmin-measured">${loadingText()}</strong>
+                            </div>
+                            <div class="qmin-gauge-grid">
+                                <div class="gauge-card">
+                                    <div class="gauge" id="dashboard-qmin-gauge" style="--value: 0;">
+                                        <div class="gauge-inner"><span id="dashboard-qmin-enabled">${loadingText()}</span></div>
+                                    </div>
+                                    <div>
+                                        <div class="metric-label">QMIN enabled</div>
+                                        <div class="metric-subvalue" id="dashboard-qmin-enabled-detail">${loadingText()}</div>
+                                    </div>
+                                </div>
+                                <div class="gauge-card">
+                                    <div class="gauge risk-gauge" id="dashboard-qmin-risk-gauge" style="--value: 0;">
+                                        <div class="gauge-inner"><span id="dashboard-qmin-risk-count">${loadingText()}</span></div>
+                                    </div>
+                                    <div>
+                                        <div class="metric-label">Amplification risk (too many iterations possible)</div>
+                                        <div class="metric-subvalue" id="dashboard-qmin-risk-detail">${loadingText()}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="metric-label">Most frequent max_minimise_count</div>
+                                <div id="dashboard-qmin-max-bars">${loadingText()}</div>
+                            </div>
+                            <div>
+                                <div class="metric-label">Most frequent minimize_one_lab</div>
+                                <div id="dashboard-qmin-one-label-bars">${loadingText()}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h2>World-wide recursive resolver deployment</h2>
+                    </div>
+                    <div class="map-wrap dashboard-map" id="${mapId}"></div>
+                    <div class="overview-detail-grid">
+                        <div class="overview-detail-card">
+                            <div class="overview-card-title">Top 10 country codes</div>
+                            <div id="dashboard-top-countries">${loadingText()}</div>
+                        </div>
+                        <div class="overview-detail-card">
+                            <div class="overview-card-title">Top 10 ASNs</div>
+                            <div id="dashboard-top-asns">${loadingText()}</div>
+                        </div>
+                    </div>
+                    <div class="overview-detail-card">
+                        <div class="overview-main-stat">
+                            <div>
+                                <div class="overview-card-title">DNSSEC country validation</div>
+                                <div class="metric-subvalue">Country-code level DNSSEC validation measurements.</div>
+                            </div>
+                            <strong id="dashboard-dnssec-country-count">${loadingText()}</strong>
+                        </div>
+                        <div class="gauge-card">
+                            <div class="gauge" id="dashboard-dnssec-gauge" style="--value: 0;">
+                                <div class="gauge-inner"><span id="dashboard-dnssec-average">${loadingText()}</span></div>
+                            </div>
+                            <div>
+                                <div class="metric-label">Average DNSSEC validation</div>
+                                <div class="metric-subvalue" id="dashboard-dnssec-detail">${loadingText()}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return mapId;
+        }
+
+        async function fetchDashboardEndpoint(path) {
+            const response = await fetch(`${apiBaseUrl}${path}`);
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.detail || payload.error || `${path} request failed.`);
+            }
+            return payload;
         }
 
         async function loadDashboard() {
-            if (cachedDashboardSummary) {
-                renderDashboard(cachedDashboardSummary);
-                setStatus("Dashboard metrics loaded from cache.", "ok");
-                return;
-            }
             setStatus("Loading dashboard metrics...", "pending");
-            dashboardSummary.innerHTML = `<div class="empty">Loading dashboard... <span class="spinner" aria-hidden="true"></span></div>`;
-            try {
-                const response = await fetch(`${apiBaseUrl}/api/dns-resilience/dashboard/summary`);
-                const payload = await response.json();
-                if (!response.ok) {
-                    throw new Error(payload.detail || payload.error || "Dashboard request failed.");
+            const mapId = renderDashboardShell();
+            let completed = 0;
+            let failed = 0;
+            const total = 11;
+            const markDone = () => {
+                completed += 1;
+                if (completed === total) {
+                    setStatus(failed ? `Dashboard loaded with ${failed} failed request${failed === 1 ? "" : "s"}.` : "Dashboard metrics loaded.", failed ? "error" : "ok");
                 }
-                renderDashboard(payload);
-                setStatus("Dashboard metrics loaded.", "ok");
-            } catch (error) {
-                setStatus("Dashboard metrics failed to load.", "error");
-                dashboardSummary.innerHTML = `<div class="empty">${error}</div>`;
-            }
+            };
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/ipv4")
+                .then((payload) => setHtml("dashboard-ipv4-card", resolverFamilyCard("IPv4", payload.resolver_count, payload.public_count)))
+                .catch(() => { failed += 1; setLoadingError("dashboard-ipv4-card"); })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/ipv6")
+                .then((payload) => setHtml("dashboard-ipv6-card", resolverFamilyCard("IPv6", payload.resolver_count, payload.public_count)))
+                .catch(() => { failed += 1; setLoadingError("dashboard-ipv6-card"); })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/dual-stack")
+                .then((payload) => setHtml("dashboard-dual-stack-card", dualStackCard(payload.dual_stack_count)))
+                .catch(() => { failed += 1; setLoadingError("dashboard-dual-stack-card"); })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/scope")
+                .then((payload) => {
+                    const latest = payload.last_observation_ts ? new Date(payload.last_observation_ts).toLocaleString() : "-";
+                    setText("dashboard-last-observation", latest);
+                    setText("dashboard-scope-asns", formatEngineering(payload.resolver_unique_asn_count));
+                    setText("dashboard-scope-countries", formatEngineering(payload.resolver_unique_country_count));
+                    setText("dashboard-scope-total", formatEngineering(payload.resolver_count));
+                })
+                .catch(() => {
+                    failed += 1;
+                    setText("dashboard-last-observation", "-");
+                    setLoadingError("dashboard-scope-asns");
+                    setLoadingError("dashboard-scope-countries");
+                    setLoadingError("dashboard-scope-total");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/anycast")
+                .then((payload) => {
+                    setText("dashboard-anycast-count", `${formatEngineering(payload.resolver_anycast_count)} (${formatPercent(payload.resolver_anycast_pc)})`);
+                    setHtml("dashboard-anycast-table", topAnycastResolverTable(payload.top_anycast_resolvers));
+                })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("dashboard-anycast-count");
+                    setLoadingError("dashboard-anycast-table");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/qmin")
+                .then((payload) => {
+                    const enabledPc = Math.max(0, Math.min(100, Number(payload.qmin_enabled_pc || 0)));
+                    const riskPc = Math.max(0, Math.min(100, Number(payload.qmin_amplification_risk_pc || 0)));
+                    const gaugeElement = document.getElementById("dashboard-qmin-gauge");
+                    if (gaugeElement) {
+                        gaugeElement.style.setProperty("--value", enabledPc);
+                    }
+                    const riskGaugeElement = document.getElementById("dashboard-qmin-risk-gauge");
+                    if (riskGaugeElement) {
+                        riskGaugeElement.style.setProperty("--value", riskPc);
+                    }
+                    setText("dashboard-qmin-measured", formatEngineering(payload.qmin_measured_count));
+                    setText("dashboard-qmin-enabled", formatEngineering(payload.qmin_enabled_count));
+                    setText("dashboard-qmin-enabled-detail", `${formatPercent(payload.qmin_enabled_pc)} of measured resolvers`);
+                    setText("dashboard-qmin-risk-count", formatEngineering(payload.qmin_amplification_risk_count));
+                    setText("dashboard-qmin-risk-detail", `${formatPercent(payload.qmin_amplification_risk_pc)} of measured resolvers`);
+                    setHtml("dashboard-qmin-max-bars", qminDistributionBars(payload.qmin_max_minimise_distribution));
+                    setHtml("dashboard-qmin-one-label-bars", qminDistributionBars(payload.qmin_minimize_one_lab_distribution));
+                })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("dashboard-qmin-measured");
+                    setText("dashboard-qmin-enabled", "-");
+                    setLoadingError("dashboard-qmin-enabled-detail");
+                    setText("dashboard-qmin-risk-count", "-");
+                    setLoadingError("dashboard-qmin-risk-detail");
+                    setLoadingError("dashboard-qmin-max-bars");
+                    setLoadingError("dashboard-qmin-one-label-bars");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/protocols")
+                .then((payload) => {
+                    setHtml("dashboard-protocol-bars", protocolBars(payload.protocols, "protocol"));
+                    setHtml("dashboard-port-bars", protocolBars(payload.ports, "port"));
+                })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("dashboard-protocol-bars");
+                    setLoadingError("dashboard-port-bars");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/spoofing")
+                .then((payload) => {
+                    setText("dashboard-spoofing-count", formatEngineering(payload.resolver_spoofing_allow_count));
+                    setText("dashboard-spoofing-percent", formatPercent(payload.resolver_spoofing_allow_pc));
+                    setText("dashboard-spoofing-blocked-count", formatEngineering(payload.resolver_spoofing_blocked_count));
+                    setText("dashboard-spoofing-blocked-percent", formatPercent(payload.resolver_spoofing_blocked_pc));
+                    setText("dashboard-spoofing-asn-resolver-count", formatEngineering(payload.resolver_spoofing_allow_asn_resolver_count));
+                    setText("dashboard-spoofing-asn-resolver-percent", formatPercent(payload.resolver_spoofing_allow_asn_resolver_pc));
+                })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("dashboard-spoofing-count");
+                    setLoadingError("dashboard-spoofing-percent");
+                    setLoadingError("dashboard-spoofing-blocked-count");
+                    setLoadingError("dashboard-spoofing-blocked-percent");
+                    setLoadingError("dashboard-spoofing-asn-resolver-count");
+                    setLoadingError("dashboard-spoofing-asn-resolver-percent");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/countries")
+                .then((payload) => {
+                    initResolverCountryMap(mapId, payload.countries || []);
+                    setHtml("dashboard-top-countries", overviewBars(payload.top_countries, "country"));
+                })
+                .catch(() => {
+                    failed += 1;
+                    const mapEl = document.getElementById(mapId);
+                    if (mapEl) {
+                        mapEl.innerHTML = `<div class="empty" style="padding: 16px;">Country map failed to load.</div>`;
+                    }
+                    setLoadingError("dashboard-top-countries");
+                })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/asns")
+                .then((payload) => setHtml("dashboard-top-asns", overviewBars(payload.top_asns, "asn", "AS")))
+                .catch(() => { failed += 1; setLoadingError("dashboard-top-asns"); })
+                .finally(markDone);
+
+            fetchDashboardEndpoint("/api/dns-resilience/global/dnssec")
+                .then((payload) => {
+                    const validatingAvg = Math.max(0, Math.min(100, Number(payload.dnssec_validating_avg || 0)));
+                    const gaugeElement = document.getElementById("dashboard-dnssec-gauge");
+                    if (gaugeElement) {
+                        gaugeElement.style.setProperty("--value", validatingAvg);
+                    }
+                    setText("dashboard-dnssec-country-count", `${formatNumber(payload.dnssec_country_count)} country codes`);
+                    setText("dashboard-dnssec-average", formatPercent(payload.dnssec_validating_avg));
+                    setText("dashboard-dnssec-detail", `Measured country codes: ${formatNumber(payload.dnssec_country_count)}`);
+                })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("dashboard-dnssec-country-count");
+                    setText("dashboard-dnssec-average", "-");
+                    setLoadingError("dashboard-dnssec-detail");
+                })
+                .finally(markDone);
         }
 
         function detectQueryType(value) {
@@ -446,6 +890,110 @@
                     </tbody>
                 </table>
             `;
+        }
+
+        function renderScopedResultsAsync(payload, type) {
+            const isAsn = type === "asn";
+            const isCountry = type === "country";
+            const targetPath = isAsn
+                ? `/api/dns-resilience/ASN/${encodeURIComponent(payload.target)}`
+                : `/api/dns-resilience/country/${encodeURIComponent(payload.target)}`;
+            const resolverTotal = Number(payload.country_resolver_count ?? payload.total ?? 0);
+            const publicCount = Number(payload.public_resolver_count || 0);
+            const closedCount = Number(payload.closed_resolver_count || 0);
+            const publicPc = resolverTotal ? (publicCount / resolverTotal) * 100 : 0;
+            const forwarderTotal = Number(payload.forwarder_count || 0);
+            const recursiveForwarders = Number(payload.recursive_forwarder_count || 0);
+            const transparentForwarders = Number(payload.transparent_forwarder_count || 0);
+            const recursiveForwarderPc = forwarderTotal ? (recursiveForwarders / forwarderTotal) * 100 : 0;
+            const anycastCount = Number(payload.anycast_resolver_count || 0);
+            const anycastOther = Math.max(resolverTotal - anycastCount, 0);
+            const anycastPc = Number(payload.anycast_resolver_pc ?? (resolverTotal ? (anycastCount / resolverTotal) * 100 : 0));
+            const scopeLabel = isAsn ? "AS overview" : "Country overview";
+            const dnssecCard = isCountry
+                ? `<div id="scoped-dnssec-card">${gauge("DNSSEC validating", 0, loadingText())}</div>`
+                : "";
+
+            results.innerHTML = `
+                <div class="tile">
+                    <div class="tile-header">
+                        <div class="tile-title">${payload.target}</div>
+                        <div class="tile-meta">${scopeLabel}</div>
+                    </div>
+                    <div class="metric-grid">
+                        ${summaryCard("Resolvers", resolverTotal, "Public", publicCount, "Non-public", closedCount, publicPc)}
+                        ${summaryCard("Forwarders", forwarderTotal, "Recursive", recursiveForwarders, "Transparent", transparentForwarders, recursiveForwarderPc)}
+                        <div id="scoped-anycast-card">${summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, loadingText())}</div>
+                        <div id="scoped-qmin-card">${summaryCard("QMIN", 0, "Yes", 0, "No", 0, 0, loadingText())}</div>
+                        <div id="scoped-spoofing-card">${spoofingCard(0, 0, 0, 0)}</div>
+                        ${dnssecCard}
+                    </div>
+                </div>
+            `;
+
+            let completed = 0;
+            let failed = 0;
+            const total = isCountry ? 4 : 3;
+            const markDone = () => {
+                completed += 1;
+                if (completed === total) {
+                    setStatus(
+                        failed ? `${scopeLabel} loaded with ${failed} failed enrichment request${failed === 1 ? "" : "s"}.` : `${scopeLabel} loaded.`,
+                        failed ? "error" : "ok",
+                    );
+                }
+            };
+
+            fetchDashboardEndpoint(`${targetPath}/qmin`)
+                .then((qmin) => {
+                    const qminMeasured = Number(qmin.measured_count || 0);
+                    const qminYes = Number(qmin.yes_count || 0);
+                    const qminNo = Number(qmin.no_count || 0);
+                    const qminUnstable = Number(qmin.unstable_count || 0);
+                    const qminUnknown = Math.max(resolverTotal - qminMeasured, 0);
+                    const qminYesPc = qminMeasured ? (qminYes / qminMeasured) * 100 : 0;
+                    setHtml("scoped-qmin-card", summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`));
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-qmin-card"); })
+                .finally(markDone);
+
+            Promise.all([
+                fetchDashboardEndpoint(`${targetPath}/anycast`),
+                fetchDashboardEndpoint(`${targetPath}/anycast/sites`),
+            ])
+                .then(([anycast, sites]) => {
+                    const countryInstances = (sites.countries || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+                    const asnInstances = (sites.asns || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+                    setHtml("scoped-anycast-card", summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, `${formatNumber(anycast.prefix_count || 0)} prefixes / ${formatNumber(countryInstances)} country instances / ${formatNumber(asnInstances)} ASN instances`));
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-anycast-card"); })
+                .finally(markDone);
+
+            fetchDashboardEndpoint(`${targetPath}/spoofing`)
+                .then((spoofing) => {
+                    setHtml(
+                        "scoped-spoofing-card",
+                        spoofingCard(
+                            Number(spoofing.spoofing_prefix_count || 0),
+                            Number(spoofing.spoofing_blocked_count || 0),
+                            Number(spoofing.spoofing_allow_count || 0),
+                            Number(spoofing.spoofing_unknown_count || 0),
+                        ),
+                    );
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-spoofing-card"); })
+                .finally(markDone);
+
+            if (isCountry) {
+                fetchDashboardEndpoint(`${targetPath}/dnssec`)
+                    .then((dnssec) => {
+                        const dnssecValidating = dnssec.dnssec_validating_pc ?? 0;
+                        const detail = dnssec.dnssec_validating_pc == null ? "No country-level DNSSEC data" : "Country-level validation";
+                        setHtml("scoped-dnssec-card", gauge("DNSSEC validating", dnssecValidating, detail));
+                    })
+                    .catch(() => { failed += 1; setLoadingError("scoped-dnssec-card"); })
+                    .finally(markDone);
+            }
         }
 
         function renderResolverSummary(summary) {

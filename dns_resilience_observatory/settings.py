@@ -35,6 +35,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "django.middleware.cache.UpdateCacheMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -42,6 +43,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.cache.FetchFromCacheMiddleware",
 ]
 
 ROOT_URLCONF = "dns_resilience_observatory.urls"
@@ -93,6 +95,8 @@ CACHES = {
         "LOCATION": "dns-resilience-observatory-api",
     }
 }
+CACHE_MIDDLEWARE_SECONDS = 600
+CACHE_MIDDLEWARE_KEY_PREFIX = "dns-resilience-observatory"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

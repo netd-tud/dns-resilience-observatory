@@ -59,7 +59,6 @@
         const results = document.getElementById("results");
         const statusText = document.getElementById("status-text");
         const statusDot = document.querySelector(".status-dot");
-        const dashboardSummary = document.getElementById("dashboard-summary");
 
         function loadPlotly() {
             if (window.Plotly) {
@@ -91,6 +90,30 @@
 
         function formatPercent(value) {
             return `${Number(value || 0).toFixed(1)}%`;
+        }
+
+        function loadingText() {
+            return `<span class="inline-loading"><span class="spinner" aria-hidden="true"></span> Loading...</span>`;
+        }
+
+        function setHtml(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.innerHTML = value;
+            }
+        }
+
+        function setLoadingError(id, message = "Failed to load.") {
+            setHtml(id, `<span class="metric-subvalue">${message}</span>`);
+        }
+
+        async function fetchApiPath(path) {
+            const response = await fetch(`${apiBaseUrl}${path}`);
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.detail || payload.error || `${path} request failed.`);
+            }
+            return payload;
         }
 
         function metricCard(label, value, subvalue = "") {
@@ -203,81 +226,6 @@
                     </div>
                 </div>
             `;
-        }
-
-        function protocolGaugeCards(protocols) {
-            return (protocols || []).map((entry) => {
-                const label = String(entry.protocol || "").toUpperCase();
-                return gauge(`Resolver ${label}`, entry.percent || 0, `${formatNumber(entry.count)} resolvers`);
-            }).join("");
-        }
-
-        function renderDashboard(summary) {
-            const mapId = `resolver-country-map-${Date.now()}`;
-            const latest = summary.last_observation_ts ? new Date(summary.last_observation_ts).toLocaleString() : "-";
-            dashboardSummary.innerHTML = `
-                <div class="dashboard-section resolver-overview">
-                    <div class="section-header">
-                        <div>
-                            <h2>Resolvers</h2>
-                            <p>Last observation: ${latest}</p>
-                        </div>
-                    </div>
-                    <div class="metric-grid">
-                        ${metricCard("Total resolvers", formatNumber(summary.resolver_count), `${formatNumber(summary.resolver_ipv4_count)} IPv4 / ${formatNumber(summary.resolver_ipv6_count)} IPv6`)}
-                        ${metricCard("Anycast supported", formatNumber(summary.resolver_anycast_count), `${formatPercent((summary.resolver_anycast_count / Math.max(summary.resolver_count || 0, 1)) * 100)} of resolvers`)}
-                        ${gauge("Public resolvers", summary.resolver_public_pc, `${formatNumber(summary.resolver_public_count)} public / ${formatNumber(summary.resolver_closed_count)} closed`)}
-                        ${ratioBar("Address family", "IPv4", summary.resolver_ipv4_count, "IPv6", summary.resolver_ipv6_count)}
-                        ${ratioBar("Resolver access", "Public", summary.resolver_public_count, "Closed", summary.resolver_closed_count)}
-                        ${ratioBar("Anycast coverage", "Anycast", summary.resolver_anycast_count, "Other", Math.max((summary.resolver_count || 0) - (summary.resolver_anycast_count || 0), 0))}
-                        ${metricCard("Resolver TCP", formatNumber(summary.resolver_tcp_count), "Resolvers supporting TCP")}
-                        ${metricCard("Resolver UDP", formatNumber(summary.resolver_udp_count), "Resolvers supporting UDP")}
-                        ${metricCard("Resolver TCP + UDP", formatNumber(summary.resolver_tcp_udp_count), "Resolvers supporting both")}
-                        ${protocolGaugeCards(summary.resolver_protocols)}
-                    </div>
-                    <div class="map-wrap dashboard-map" id="${mapId}"></div>
-                </div>
-
-                <div class="dashboard-section split-section">
-                    <div>
-                        <h2>Forwarders</h2>
-                        <div class="metric-grid compact">
-                            ${metricCard("Total forwarders", formatNumber(summary.forwarder_count), `${formatNumber(summary.forwarder_public_count)} public / ${formatNumber(summary.forwarder_non_public_count)} non-public`)}
-                            ${gauge("Public forwarders", summary.forwarder_public_pc, "Share of forwarders marked public")}
-                            ${ratioBar("Forwarder access", "Public", summary.forwarder_public_count, "Non-public", summary.forwarder_non_public_count)}
-                            ${metricCard("Forwarder TCP", formatNumber(summary.forwarder_tcp_count), "Forwarders supporting TCP")}
-                            ${metricCard("Forwarder UDP", formatNumber(summary.forwarder_udp_count), "Forwarders supporting UDP")}
-                            ${metricCard("Forwarder TCP + UDP", formatNumber(summary.forwarder_tcp_udp_count), "Forwarders supporting both")}
-                        </div>
-                    </div>
-                    <div>
-                        <h2>DNSSEC Country Validation</h2>
-                        <div class="metric-grid compact">
-                            ${metricCard("Countries measured", formatNumber(summary.dnssec_country_count))}
-                            ${gauge("Validating", summary.dnssec_validating_avg, "Average country-level validation")}
-                            ${gauge("Partial validating", summary.dnssec_partial_validating_avg, "Average country-level partial validation")}
-                        </div>
-                    </div>
-                </div>
-            `;
-            initResolverCountryMap(mapId, summary.resolver_countries || []);
-        }
-
-        async function loadDashboard() {
-            setStatus("Loading dashboard metrics...", "pending");
-            dashboardSummary.innerHTML = `<div class="empty">Loading dashboard... <span class="spinner" aria-hidden="true"></span></div>`;
-            try {
-                const response = await fetch(`${apiBaseUrl}/api/dns-resilience/dashboard/summary`);
-                const payload = await response.json();
-                if (!response.ok) {
-                    throw new Error(payload.detail || payload.error || "Dashboard request failed.");
-                }
-                renderDashboard(payload);
-                setStatus("Dashboard metrics loaded.", "ok");
-            } catch (error) {
-                setStatus("Dashboard metrics failed to load.", "error");
-                dashboardSummary.innerHTML = `<div class="empty">${error}</div>`;
-            }
         }
 
         function detectQueryType(value) {
@@ -495,6 +443,140 @@
                 <div id="generic-resolver-table"></div>
             `;
             renderResolverTable(document.getElementById("generic-resolver-table"), payload.resolvers);
+        }
+
+        function renderScopedResultsAsync(payload, type) {
+            const isAsn = type === "asn";
+            const isCountry = type === "country";
+            const targetPath = isAsn
+                ? `/api/dns-resilience/ASN/${encodeURIComponent(payload.target)}`
+                : `/api/dns-resilience/country/${encodeURIComponent(payload.target)}`;
+            const resolverTotal = Number(payload.country_resolver_count ?? payload.total ?? 0);
+            const publicCount = Number(payload.public_resolver_count || 0);
+            const closedCount = Number(payload.closed_resolver_count || 0);
+            const anycastCount = Number(payload.anycast_resolver_count || 0);
+            const publicPc = resolverTotal ? (publicCount / resolverTotal) * 100 : 0;
+            const anycastOther = Math.max(resolverTotal - anycastCount, 0);
+            const anycastPc = Number(payload.anycast_resolver_pc ?? (resolverTotal ? (anycastCount / resolverTotal) * 100 : 0));
+            const forwarderTotal = Number(payload.forwarder_count || 0);
+            const recursiveForwarders = Number(payload.recursive_forwarder_count || 0);
+            const transparentForwarders = Number(payload.transparent_forwarder_count || 0);
+            const recursiveForwarderPc = forwarderTotal ? (recursiveForwarders / forwarderTotal) * 100 : 0;
+            const scopeLabel = isAsn ? "AS overview" : "Country overview";
+            const dnssecCard = isCountry
+                ? `<div id="scoped-dnssec-card">${gauge("DNSSEC validating", 0, loadingText())}</div>`
+                : "";
+
+            results.innerHTML = `
+                <div class="dashboard-section">
+                    <div class="section-header">
+                        <div>
+                            <h2>${payload.target}</h2>
+                            <p>${scopeLabel}</p>
+                        </div>
+                    </div>
+                    <div class="metric-grid">
+                        ${summaryCard("Resolvers", resolverTotal, "Public", publicCount, "Non-public", closedCount, publicPc)}
+                        ${summaryCard("Forwarders", forwarderTotal, "Recursive", recursiveForwarders, "Transparent", transparentForwarders, recursiveForwarderPc)}
+                        <div id="scoped-anycast-card">${summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, loadingText())}</div>
+                        <div id="scoped-qmin-card">${summaryCard("QMIN", 0, "Yes", 0, "No", 0, 0, loadingText())}</div>
+                        <div id="scoped-spoofing-card">${spoofingCard(0, 0, 0, 0)}</div>
+                        ${dnssecCard}
+                    </div>
+                </div>
+            `;
+
+            let completed = 0;
+            let failed = 0;
+            const total = isCountry ? 4 : 3;
+            const markDone = () => {
+                completed += 1;
+                if (completed === total) {
+                    setStatus(
+                        failed ? `${scopeLabel} loaded with ${failed} failed enrichment request${failed === 1 ? "" : "s"}.` : `${scopeLabel} loaded.`,
+                        failed ? "error" : "ok",
+                    );
+                }
+            };
+
+            fetchApiPath(`${targetPath}/qmin`)
+                .then((qmin) => {
+                    const qminMeasured = Number(qmin.measured_count || 0);
+                    const qminYes = Number(qmin.yes_count || 0);
+                    const qminNo = Number(qmin.no_count || 0);
+                    const qminUnstable = Number(qmin.unstable_count || 0);
+                    const qminUnknown = Math.max(resolverTotal - qminMeasured, 0);
+                    const qminYesPc = qminMeasured ? (qminYes / qminMeasured) * 100 : 0;
+                    setHtml("scoped-qmin-card", summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`));
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-qmin-card"); })
+                .finally(markDone);
+
+            Promise.all([
+                fetchApiPath(`${targetPath}/anycast`),
+                fetchApiPath(`${targetPath}/anycast/sites`),
+            ])
+                .then(([anycast, sites]) => {
+                    const countryInstances = (sites.countries || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+                    const asnInstances = (sites.asns || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+                    setHtml("scoped-anycast-card", summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, `${formatNumber(anycast.prefix_count || 0)} prefixes / ${formatNumber(countryInstances)} country instances / ${formatNumber(asnInstances)} ASN instances`));
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-anycast-card"); })
+                .finally(markDone);
+
+            fetchApiPath(`${targetPath}/spoofing`)
+                .then((spoofing) => {
+                    setHtml(
+                        "scoped-spoofing-card",
+                        spoofingCard(
+                            Number(spoofing.spoofing_prefix_count || 0),
+                            Number(spoofing.spoofing_blocked_count || 0),
+                            Number(spoofing.spoofing_allow_count || 0),
+                            Number(spoofing.spoofing_unknown_count || 0),
+                        ),
+                    );
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-spoofing-card"); })
+                .finally(markDone);
+
+            if (isCountry) {
+                fetchApiPath(`${targetPath}/dnssec`)
+                    .then((dnssec) => {
+                        const dnssecValidating = dnssec.dnssec_validating_pc ?? 0;
+                        const detail = dnssec.dnssec_validating_pc == null ? "No country-level DNSSEC data" : "Country-level validation";
+                        setHtml("scoped-dnssec-card", gauge("DNSSEC validating", dnssecValidating, detail));
+                    })
+                    .catch(() => { failed += 1; setLoadingError("scoped-dnssec-card"); })
+                    .finally(markDone);
+            }
+        }
+
+        function renderResolverLookupAsync(query) {
+            results.innerHTML = `
+                <div class="tile">
+                    <div class="tile-header">
+                        <div class="tile-title resolver-lookup-title">${query}</div>
+                    </div>
+                    <div class="empty">${loadingText()}</div>
+                </div>
+            `;
+            const summaryEndpoint = `${apiBaseUrl}/api/dns-resilience/resolver/${encodeURIComponent(query)}/summary`;
+            fetch(summaryEndpoint)
+                .then(async (response) => {
+                    const payload = await response.json();
+                    if (!response.ok) {
+                        throw new Error(payload.detail || payload.error || "Lookup failed.");
+                    }
+                    return payload;
+                })
+                .then((summaryPayload) => {
+                    setStatus("Resolver summary loaded.", "ok");
+                    renderResolverSummary(summaryPayload);
+                })
+                .catch((error) => {
+                    setStatus("Resolver summary failed to load.", "error");
+                    results.innerHTML = `<div class="empty">${error}</div>`;
+                });
         }
 
         function renderResolverSummary(summary) {
@@ -786,16 +868,8 @@
 
             try {
                 if (type === "resolver") {
-                    const summaryEndpoint = `${apiBaseUrl}/api/dns-resilience/resolver/${encodeURIComponent(query)}/summary`;
-                    const summaryResponse = await fetch(summaryEndpoint);
-                    const summaryPayload = await summaryResponse.json();
-                    if (!summaryResponse.ok) {
-                        setStatus(summaryPayload.detail || summaryPayload.error || "Lookup failed.", "error");
-                        results.innerHTML = `<div class="empty">${summaryPayload.detail || summaryPayload.error || "Request failed."}</div>`;
-                        return;
-                    }
-                    setStatus("Resolver summary loaded.", "ok");
-                    renderResolverSummary(summaryPayload);
+                    setStatus("Loading resolver summary...", "pending");
+                    renderResolverLookupAsync(query);
                     return;
                 }
 
@@ -809,6 +883,11 @@
                 if (!response.ok) {
                     setStatus(payload.detail || payload.error || "Lookup failed.", "error");
                     results.innerHTML = `<div class="empty">${payload.detail || payload.error || "Request failed."}</div>`;
+                    return;
+                }
+                if (type === "country" || type === "asn") {
+                    setStatus("Loading summary details...", "pending");
+                    renderScopedResultsAsync(payload, type);
                     return;
                 }
                 setStatus(`Found ${payload.total} resolver(s).`, "ok");
