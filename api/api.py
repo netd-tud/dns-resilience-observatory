@@ -167,6 +167,44 @@ def get_dns_resilience_by_country(request, country: str, limit: int = Query(100,
     )
 
 
+@api.get("/dns-resilience/domain/{domain}/summary", response=dict, summary="Get aggregated resolver data for a domain")
+def get_dns_resilience_domain_summary(request, domain: str):
+    normalized_domain = dns_resilience_service.validate_domain(domain)
+    resolvers = dns_resilience_service.get_resolvers_by_domain(normalized_domain, limit=1000)
+    details = [dns_resilience_service.get_anycast_summary_by_ip(row["ip"]) for row in resolvers]
+    ips = [row["ip"] for row in resolvers]
+    services = sorted({service for row in resolvers for service in (row.get("supported_protocols") or "").split(",") if service})
+    public_count = sum(1 for row in resolvers if row.get("is_public"))
+    countries = {row["country"] for row in resolvers if row.get("country")}
+    asns = {row["asn"] for row in resolvers if row.get("asn") is not None}
+    prefixes = {row["bgp_prefix"] for row in resolvers if row.get("bgp_prefix")}
+    organizations = {row["org"] for row in resolvers if row.get("org")}
+    anycast_countries = {entry["country"] for detail in details for entry in detail.get("anycast_countries", [])}
+    qmin_measured = sum(1 for detail in details if detail.get("resolver_qmin") is not None)
+    dnssec_values = {detail.get("resolver_dnssec_validates") for detail in details if detail.get("resolver_dnssec_validates") is not None}
+    dohpaths = sorted({path for row in resolvers if (path := dns_resilience_service.get_resolver_dohpath(row.get("id")))})
+    return {
+        "is_domain_summary": True, "resolver_ip": normalized_domain, "resolver_found": bool(resolvers),
+        "resolver_asn": len(asns), "resolver_prefix": len(prefixes), "resolver_country": len(countries), "resolver_city": None,
+        "resolver_org": len(organizations), "resolver_domain": normalized_domain, "resolver_domains": [normalized_domain], "resolver_dohpath": dohpaths[0] if dohpaths else None,
+        "resolver_qmin": f"Measured {qmin_measured}/{len(resolvers)}" if qmin_measured else None,
+        "resolver_qmin_max_minimise_count": None, "resolver_qmin_minimize_one_lab": None,
+        "resolver_dnssec_validates": next(iter(dnssec_values)) if len(dnssec_values) == 1 else None,
+        "resolver_is_public": public_count > 0, "resolver_services": services, "resolver_supported_protocols": ",".join(services),
+        "resolver_supports_tcp": any(detail.get("resolver_supports_tcp") for detail in details), "resolver_supports_udp": any(detail.get("resolver_supports_udp") for detail in details),
+        "resolver_supports_ipv4": any(":" not in ip for ip in ips), "resolver_supports_ipv6": any(":" in ip for ip in ips),
+        "alternative_resolver_ips": ips, "sibling_resolver_ips": [],
+        "spoofing_prefix_count": sum(detail.get("spoofing_prefix_count", 0) for detail in details), "spoofing_allow_count": sum(detail.get("spoofing_allow_count", 0) for detail in details),
+        "spoofing_received_count": sum(detail.get("spoofing_received_count", 0) for detail in details), "spoofing_blocked_count": sum(detail.get("spoofing_blocked_count", 0) for detail in details), "spoofing_unknown_count": sum(detail.get("spoofing_unknown_count", 0) for detail in details),
+        "spoofing_allow_pc": 0, "spoofing_last_update_ts": None, "spoofing_allow_prefixes": [],
+        "anycast_found": any(detail.get("anycast_found") for detail in details), "anycast_site_count": sum(detail.get("anycast_site_count", 0) for detail in details),
+        "anycast_country_count": len(anycast_countries), "anycast_asn_count": sum(detail.get("anycast_asn_count", 0) for detail in details), "anycast_countries": [],
+        "last_observation_ts": max((row.get("last_observation_ts") for row in resolvers if row.get("last_observation_ts")), default=None),
+        "forwarder_asn_count": 0, "forwarder_country_count": 0, "forwarder_entry_count": 0, "forwarder_tcp_count": 0, "forwarder_udp_count": 0, "forwarder_tcp_udp_count": 0,
+        "forwarder_countries": [], "forwarder_asns": [], "domain_public_count": public_count, "domain_resolver_count": len(resolvers),
+        "domain_is_dual_stack": any(":" not in ip for ip in ips) and any(":" in ip for ip in ips),
+    }
+
 @api.get(
     "/dns-resilience/domain/{domain}",
     response=DNSResilienceResponse,

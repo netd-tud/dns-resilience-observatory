@@ -201,14 +201,27 @@ class DNSResilienceService:
             return []
         return self._fetchall(
             """
-            SELECT
-                host(ip) AS ip,
-                family(ip)::INTEGER AS family
-            FROM resolver
-            WHERE resolver_id = %s
-            ORDER BY family(ip), ip::TEXT
+            WITH target_domain AS (
+                SELECT DISTINCT LOWER(domain) AS domain
+                FROM resolver_domain
+                WHERE resolver_id = %s
+                  AND domain IS NOT NULL
+            ),
+            related_resolver AS (
+                SELECT %s::BIGINT AS resolver_id
+                UNION
+                SELECT rd.resolver_id
+                FROM resolver_domain rd
+                JOIN target_domain td ON LOWER(rd.domain) = td.domain
+            )
+            SELECT DISTINCT
+                host(r.ip) AS ip,
+                family(r.ip)::INTEGER AS family
+            FROM resolver r
+            JOIN related_resolver rr ON rr.resolver_id = r.resolver_id
+            ORDER BY family(r.ip), host(r.ip)
             """,
-            [resolver_id],
+            [resolver_id, resolver_id],
         )
 
     @cached()
@@ -259,6 +272,20 @@ class DNSResilienceService:
         return [row["domain"] for row in rows]
 
     @cached()
+    def get_resolver_dohpath(self, resolver_id: int | None) -> str | None:
+        if not resolver_id:
+            return None
+        row = self._fetchone(
+            """
+            SELECT dohpath
+            FROM resolver_dohpath
+            WHERE resolver_id = %s
+            """,
+            [resolver_id],
+        )
+        return row.get("dohpath") if row else None
+
+    @cached()
     def get_resolver_services(self, resolver_id: int | None) -> list[str]:
         if not resolver_id:
             return []
@@ -294,6 +321,24 @@ class DNSResilienceService:
             [normalized],
         )
         return row or {"resolver_ip": normalized, "qmin": None}
+
+    @cached()
+    def get_resolver_dnssec(self, ip: str) -> dict:
+        normalized = self.validate_ip_address(ip)
+        row = self._fetchone(
+            """
+            SELECT
+                validates AS resolver_dnssec_validates,
+                last_update_ts AS resolver_dnssec_last_update_ts
+            FROM dnssec_resolver
+            WHERE ip = %s::inet
+            """,
+            [normalized],
+        )
+        return row or {
+            "resolver_dnssec_validates": None,
+            "resolver_dnssec_last_update_ts": None,
+        }
 
     @cached()
     def get_resolver_anycast(self, ip: str) -> dict:
@@ -381,6 +426,10 @@ class DNSResilienceService:
                        OR LOWER(COALESCE(routedspoof, '')) IN ('received', 'rewritten')
                 )::INTEGER AS spoofing_allow_count,
                 COUNT(*) FILTER (
+                    WHERE LOWER(COALESCE(privatespoof, '')) = 'received'
+                       OR LOWER(COALESCE(routedspoof, '')) = 'received'
+                )::INTEGER AS spoofing_received_count,
+                COUNT(*) FILTER (
                     WHERE NOT (
                         LOWER(COALESCE(privatespoof, '')) IN ('received', 'rewritten')
                         OR LOWER(COALESCE(routedspoof, '')) IN ('received', 'rewritten')
@@ -422,6 +471,7 @@ class DNSResilienceService:
         return {
             "spoofing_prefix_count": total,
             "spoofing_allow_count": allow,
+            "spoofing_received_count": row.get("spoofing_received_count", 0) or 0,
             "spoofing_blocked_count": row.get("spoofing_blocked_count", 0) or 0,
             "spoofing_unknown_count": row.get("spoofing_unknown_count", 0) or 0,
             "spoofing_allow_pc": self._pc(allow, total),
@@ -1342,6 +1392,7 @@ class DNSResilienceService:
         anycast = self.get_resolver_anycast(ip)
         sites = self.get_resolver_anycast_sites(ip)
         qmin = self.get_resolver_qmin(ip)
+        dnssec = self.get_resolver_dnssec(ip)
         spoofing = self.get_resolver_spoofing(ip)
         forwarders = self.get_forwarder_relay_summary_by_ip(ip)
         resolver = core.get("resolver") or {}
@@ -1350,6 +1401,7 @@ class DNSResilienceService:
         sibling_ips = self.get_resolver_sibling_ips(resolver.get("id"), core["resolver_ip"])
         resolver_domains = self.get_resolver_domains(resolver.get("id"))
         resolver_services = self.get_resolver_services(resolver.get("id"))
+        resolver_dohpath = self.get_resolver_dohpath(resolver.get("id"))
         tokens = self._protocol_tokens(",".join(resolver_services) or resolver.get("supported_protocols"))
         return {
             "resolver_ip": core["resolver_ip"],
@@ -1362,11 +1414,15 @@ class DNSResilienceService:
             "resolver_domain": ", ".join(resolver_domains) if resolver_domains else resolver.get("domain"),
             "resolver_domains": resolver_domains,
             "resolver_qmin": qmin_value,
+            "resolver_qmin_max_minimise_count": qmin.get("max_minimise_count"),
+            "resolver_dohpath": resolver_dohpath,
+            "resolver_qmin_minimize_one_lab": qmin.get("minimize_one_lab"),
+            "resolver_dnssec_validates": dnssec.get("resolver_dnssec_validates"),
             "resolver_is_public": resolver.get("is_public"),
             "resolver_supported_protocols": ",".join(resolver_services) if resolver_services else resolver.get("supported_protocols"),
             "resolver_services": resolver_services,
-            "resolver_supports_tcp": "tcp" in tokens or "dotcp" in tokens,
-            "resolver_supports_udp": "udp" in tokens or "doudp" in tokens,
+            "resolver_supports_tcp": "dotcp" in tokens,
+            "resolver_supports_udp": "doudp" in tokens,
             "resolver_supports_ipv4": any(row.get("family") == 4 for row in alternative_ips),
             "resolver_supports_ipv6": any(row.get("family") == 6 for row in alternative_ips),
             "alternative_resolver_ips": [row["ip"] for row in alternative_ips],

@@ -552,6 +552,8 @@
         }
 
         function renderResolverLookupAsync(query) {
+
+
             results.innerHTML = `
                 <div class="tile">
                     <div class="tile-header">
@@ -579,12 +581,26 @@
                 });
         }
 
+        function renderDomainLookupAsync(query) {
+            fetchApiPath(`/api/dns-resilience/domain/${encodeURIComponent(query)}/summary`)
+                .then((summaryPayload) => {
+                    setStatus("Domain summary loaded.", "ok");
+                    renderResolverSummary(summaryPayload);
+                })
+                .catch((error) => {
+                    setStatus("Domain summary failed to load.", "error");
+                    results.innerHTML = `<div class="empty">${error}</div>`;
+                });
+        }
+
         function renderResolverSummary(summary) {
+            const isDomainSummary = Boolean(summary.is_domain_summary);
+            const isIpv6Address = (value) => String(value || "").includes(":");
             const checkmark = (value) => {
                 if (value === null || value === undefined) {
                     return "-";
                 }
-                const cls = value ? "checkmark" : "checkmark off";
+                const cls = value ? "resolver-state-icon checkmark" : "resolver-state-icon checkmark off";
                 const symbol = value ? "✓" : "✕";
                 return `<span class="${cls}">${symbol}</span>`;
             };
@@ -596,33 +612,32 @@
             const forwarderAsnTabId = `forwarder-asn-tab-${Date.now()}`;
 
             const mapId = `map-${Date.now()}`;
-            const lastObservation = summary.last_observation_ts
-                ? new Date(summary.last_observation_ts).toLocaleString()
+            const observationTimestamp = summary.last_observation_ts || summary.last_update_ts || summary.spoofing_last_update_ts;
+            const lastObservation = observationTimestamp
+                ? new Date(observationTimestamp).toLocaleString()
                 : "-";
+            const titleObservation = lastObservation === "-" ? "(Last observation unknown)" : `(Last observation: ${lastObservation})`;
             const valueOrUnknown = (value) => {
                 if (value === null || value === undefined || value === "") {
                     return `<span class="unknown-badge">UNKNOWN</span>`;
                 }
                 return value;
             };
-            const metadataCard = (label, value) => `
-                <div class="metadata-card">
-                    <div class="metadata-label">${label}</div>
-                    <div class="metadata-value">${valueOrUnknown(value)}</div>
+            const resolverInfoCard = (label, value, extraClass = "") => `
+                <div class="resolver-info-card ${extraClass}">
+                    <div class="resolver-info-label">${label}</div>
+                    <div class="resolver-info-value">${valueOrUnknown(value)}</div>
                 </div>
             `;
-            const qminState = summary.resolver_qmin || null;
-            const qminYes = qminState === "yes" ? 1 : 0;
-            const qminNo = qminState === "no" ? 1 : 0;
-            const qminUnstable = qminState === "unstable" ? 1 : 0;
             const searchLink = (value, label = value) => `<a class="ip-chip" href="/search.html?q=${encodeURIComponent(value)}">${label}</a>`;
-            const resolverAsn = summary.resolver_asn == null ? null : searchLink(`AS${summary.resolver_asn}`);
-            const resolverCountry = summary.resolver_country ? searchLink(summary.resolver_country) : null;
-            const resolverPrefix = summary.resolver_prefix ? searchLink(summary.resolver_prefix) : null;
-            const siblingIps = summary.sibling_resolver_ips || [];
-            const siblingIpHtml = siblingIps.length
-                ? `<div class="ip-list sibling-ip-list">${siblingIps.map((ip) => searchLink(ip)).join("")}</div>`
-                : `<span class="unknown-badge">UNKNOWN</span>`;
+            const tableLink = (value, label = value) => `<a class="resolver-table-link" href="/search.html?q=${encodeURIComponent(value)}">${label}</a>`;
+            const uniqueValues = (values) => [...new Set((values || []).filter(Boolean))];
+            const resolverTable = (rows) => rows.length
+                ? `<div class="resolver-scroll-table">${rows.join("")}</div>`
+                : null;
+            const resolverAsn = summary.resolver_asn == null ? null : (isDomainSummary ? summary.resolver_asn : searchLink(`AS${summary.resolver_asn}`));
+            const resolverCountry = summary.resolver_country ? (isDomainSummary ? summary.resolver_country : searchLink(summary.resolver_country)) : null;
+            const resolverPrefix = summary.resolver_prefix ? (isDomainSummary ? summary.resolver_prefix : searchLink(summary.resolver_prefix)) : null;
             const resolverDomains = summary.resolver_domains || [];
             const domainHtml = resolverDomains.length
                 ? `<div class="ip-list">${resolverDomains.map((domain) => searchLink(domain)).join("")}</div>`
@@ -631,46 +646,153 @@
                 .split(",")
                 .map((service) => service.trim())
                 .filter(Boolean);
-            const serviceHtml = services.length
-                ? `<div class="ip-list">${services.map((service) => searchLink(service.toLowerCase())).join("")}</div>`
-                : null;
-            const spoofingTotal = Number(summary.spoofing_prefix_count || 0);
-            const spoofingAllow = Number(summary.spoofing_allow_count || 0);
-            const spoofingBlocked = Number(summary.spoofing_blocked_count || 0);
-            const spoofingUnknown = Number(summary.spoofing_unknown_count || 0);
-            const spoofingPrefixes = summary.spoofing_allow_prefixes || [];
-            const spoofingPrefixHtml = spoofingPrefixes.length
-                ? `<div class="ip-list">${spoofingPrefixes.map((entry) => `<span class="ip-chip">${entry.prefix}</span>`).join("")}</div>`
-                : null;
+            const serviceHtml = resolverTable(services.map((service) => {
+                const [protocol, port] = service.split(":");
+                const serviceLabel = service.toLowerCase();
+                return `
+                    <div class="resolver-table-row">
+                        <span class="resolver-table-primary">${(protocol || service).toUpperCase()}</span>
+                        <span class="resolver-table-secondary">${port ? `Port ${port}` : "-"}</span>
+                        ${tableLink(serviceLabel, "View")}
+                    </div>
+                `;
+            }));
+            const allResolverIps = uniqueValues(isDomainSummary ? summary.alternative_resolver_ips : [summary.resolver_ip, ...(summary.alternative_resolver_ips || [])]);
+            const queriedIpIsIpv6 = isIpv6Address(summary.resolver_ip);
+            const siblingIps = allResolverIps.filter((ip) => isIpv6Address(ip) !== queriedIpIsIpv6);
+            const siblingFamilyLabel = queriedIpIsIpv6 ? "IPv4 sibling" : "IPv6 sibling";
+            const siblingIpHtml = resolverTable(siblingIps.map((ip) => `
+                <div class="resolver-table-row">
+                    <span class="resolver-table-primary">${ip}</span>
+                    <span class="resolver-table-secondary">${isIpv6Address(ip) ? "IPv6" : "IPv4"}</span>
+                    ${tableLink(ip, "Open")}
+                </div>
+            `));
+            const alternativeIpHtml = resolverTable(allResolverIps.map((ip) => `
+                <div class="resolver-table-row">
+                    <span class="resolver-table-primary">${ip}</span>
+                    <span class="resolver-table-secondary">${isIpv6Address(ip) ? "IPv6" : "IPv4"}</span>
+                    ${tableLink(ip, ip === summary.resolver_ip ? "Current" : "Open")}
+                </div>
+            `));
+            const isDualStack = isDomainSummary ? Boolean(summary.domain_is_dual_stack) : siblingIps.length > 0;
+            const resolverDohpath = summary.resolver_dohpath;
+            const hasDohpath = Boolean(resolverDohpath);
+            const qminMeasured = [summary.resolver_qmin, summary.resolver_qmin_max_minimise_count, summary.resolver_qmin_minimize_one_lab]
+                .some((value) => value !== null && value !== undefined);
+            const qminState = qminMeasured ? (summary.resolver_qmin || "Measured") : "Not measured";
+            const dnssecKnown = summary.resolver_dnssec_validates !== null && summary.resolver_dnssec_validates !== undefined;
+            const dnssecState = dnssecKnown ? (summary.resolver_dnssec_validates ? "Validates" : "Does not validate") : "Unknown";
+            const spoofingReceived = Number(summary.spoofing_received_count || 0) > 0;
+            const spoofingBlocked = Number(summary.spoofing_blocked_count || 0) > 0;
+            const spoofingState = spoofingReceived ? "Spoofing detected" : (spoofingBlocked ? "No spoofing detected" : "Unknown");
+
 
             results.innerHTML = `
-                <div class="tile">
-                    <div class="tile-header">
+                <div class="tile resolver-detail">
+                    <div class="resolver-title-block">
                         <div class="tile-title resolver-lookup-title">${summary.resolver_ip}</div>
+                        <div class="resolver-title-meta">${titleObservation}</div>
                     </div>
-                    <div class="resolver-summary-grid">
-                        ${summaryCard("Resolver", summary.resolver_found ? 1 : 0, "IPv4", summary.resolver_supports_ipv4 ? 1 : 0, "IPv6", summary.resolver_supports_ipv6 ? 1 : 0, summary.resolver_found ? 100 : 0, `Public: ${summary.resolver_is_public === null || summary.resolver_is_public === undefined ? "unknown" : (summary.resolver_is_public ? "yes" : "no")}`)}
-                        ${summaryCard("Forwarders", summary.forwarder_entry_count ?? 0, "ASNs", summary.forwarder_asn_count ?? 0, "Countries", summary.forwarder_country_count ?? 0, summary.forwarder_entry_count ? 100 : 0, `Open forwarder IPs relaying to ${summary.resolver_ip}`)}
-                        ${summaryCard("Anycast", summary.anycast_found ? (summary.anycast_site_count ?? 0) : 0, "Countries", summary.anycast_country_count ?? 0, "ASNs", summary.anycast_asn_count ?? 0, summary.anycast_found ? 100 : 0, summary.anycast_found ? "Anycast sites" : "No anycast sites")}
-                        ${summaryCard("QMIN", qminState ? 1 : 0, "Yes", qminYes, "No", qminNo, qminState === "yes" ? 100 : 0, qminState ? `${qminState}${qminUnstable ? " / unstable" : ""}` : "UNKNOWN")}
-                        ${spoofingCard(spoofingTotal, spoofingBlocked, spoofingAllow, spoofingUnknown)}
-                    </div>
-                    <div class="metadata-grid">
-                        ${metadataCard("ASN", resolverAsn)}
-                        ${metadataCard("Country", resolverCountry)}
-                        ${metadataCard("BGP prefix", resolverPrefix)}
-                        ${metadataCard("Domain names", domainHtml)}
-                        ${metadataCard("Organization", summary.resolver_org)}
-                        ${metadataCard("Protocol:port", serviceHtml)}
-                        ${metadataCard("Last observed", lastObservation === "-" ? null : lastObservation)}
-                        <div class="metadata-card">
-                            <div class="metadata-label">Sibling resolver IPs</div>
-                            <div class="metadata-value">${siblingIpHtml}</div>
+                    <div class="resolver-info-grid">
+                        <div class="resolver-info-card resolver-public-card">
+                            <div class="resolver-info-label">Is public</div>
+                            <div class="resolver-public-state">
+                                ${checkmark(summary.resolver_is_public)}
+                                <span>${isDomainSummary ? `${summary.domain_public_count}/${summary.domain_resolver_count} public` : (summary.resolver_is_public === null || summary.resolver_is_public === undefined ? "Unknown" : (summary.resolver_is_public ? "Yes" : "No"))}</span>
+                            </div>
                         </div>
-                        ${metadataCard("IPv4 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv4) : null)}
-                        ${metadataCard("IPv6 support", summary.resolver_found ? checkmark(summary.resolver_supports_ipv6) : null)}
-                        ${metadataCard("QMIN", qminState)}
-                        ${metadataCard("Spoofing prefixes allowing spoofing", spoofingPrefixHtml)}
+                        ${resolverInfoCard(isDomainSummary ? "Unique ASNs" : "ASN", resolverAsn)}
+                        ${resolverInfoCard(isDomainSummary ? "Countries" : "Country of origin", resolverCountry)}
+                        ${resolverInfoCard(isDomainSummary ? "BGP prefixes" : "BGP prefix", resolverPrefix)}
+                        ${resolverInfoCard("Domain names", domainHtml)}
+                        ${resolverInfoCard(isDomainSummary ? "Organizations" : "Organization", summary.resolver_org)}
+                    </div>
+                    <div class="resolver-secondary-grid">
+                        <div class="resolver-panel">
+                            <div class="resolver-panel-title">Supported protocols${isDomainSummary ? ` (${services.length})` : ""}</div>
+                            ${valueOrUnknown(serviceHtml)}
+                        </div>
+                        <div class="resolver-status-stack">
+                            <div class="resolver-panel resolver-half-panel resolver-dual-stack-panel">
+                                <div class="resolver-panel-title">Dual stack ${siblingFamilyLabel}</div>
+                                <div class="resolver-public-state">
+                                    ${checkmark(isDualStack)}
+                                    <span>${isDualStack ? "Available" : "Not found"}</span>
+                                </div>
+                                <div class="resolver-panel-body">${valueOrUnknown(siblingIpHtml)}</div>
+                            </div>
+                            <div class="resolver-panel resolver-half-panel">
+                                <div class="resolver-panel-title">DoH path</div>
+                                ${hasDohpath ? `
+                                    <div class="resolver-public-state">
+                                        ${checkmark(true)}
+                                        <span>Available</span>
+                                    </div>
+                                    <span class="resolver-dohpath">${resolverDohpath}</span>
+                                ` : `
+                                    <div class="resolver-public-state">
+                                        ${checkmark(false)}
+                                        <span>Not found</span>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                        <div class="resolver-panel">
+                            <div class="resolver-panel-title">${isDomainSummary ? "Associated resolver IPs" : "Alternative IP addresses"}</div>
+                            <div class="resolver-panel-body">${valueOrUnknown(alternativeIpHtml)}</div>
+                        </div>
+                    </div>
+                    <div class="resolver-tertiary-grid">
+                        <div class="resolver-panel">
+                            <div class="resolver-panel-title">Anycast</div>
+                            <div class="resolver-public-state">
+                                ${checkmark(summary.anycast_found)}
+                                <span>${summary.anycast_found ? "Available" : "Not found"}</span>
+                            </div>
+                            <div class="resolver-stat-grid">
+                                <div class="resolver-stat"><div class="resolver-info-label">Sites</div><div class="resolver-info-value">${summary.anycast_found ? summary.anycast_site_count : "-"}</div></div>
+                                <div class="resolver-stat"><div class="resolver-info-label">Countries</div><div class="resolver-info-value">${summary.anycast_found ? summary.anycast_country_count : "-"}</div></div>
+                                <div class="resolver-stat"><div class="resolver-info-label">ASNs</div><div class="resolver-info-value">${summary.anycast_found ? summary.anycast_asn_count : "-"}</div></div>
+                            </div>
+                        </div>
+                        <div class="resolver-panel">
+
+                            <div class="resolver-panel-title">QMIN</div>
+                            <div class="resolver-public-state">
+                                ${checkmark(qminMeasured)}
+                                <span>${qminState}</span>
+                            </div>
+                            <div class="resolver-stat-grid">
+                                <div class="resolver-stat"><div class="resolver-info-label">Max minimise count</div><div class="resolver-info-value">${qminMeasured ? valueOrUnknown(summary.resolver_qmin_max_minimise_count) : "-"}</div></div>
+                                <div class="resolver-stat"><div class="resolver-info-label">Minimize one lab</div><div class="resolver-info-value">${qminMeasured ? valueOrUnknown(summary.resolver_qmin_minimize_one_lab) : "-"}</div></div>
+                            </div>
+                        </div>
+                        <div class="resolver-status-stack">
+                            <div class="resolver-panel resolver-half-panel">
+                                <div class="resolver-panel-title">DNSSEC validation</div>
+                                ${dnssecKnown ? `
+                                    <div class="resolver-public-state">
+                                        ${checkmark(summary.resolver_dnssec_validates)}
+                                        <span>${dnssecState}</span>
+                                    </div>
+                                ` : `<span class="resolver-unknown-state">Unknown</span>`}
+                            </div>
+                            <div class="resolver-panel resolver-half-panel">
+                                <div class="resolver-panel-title">Spoofing</div>
+                                ${spoofingReceived ? `
+                                    <div class="resolver-public-state">
+                                        ${checkmark(false)}
+                                        <span>${spoofingState}</span>
+                                    </div>
+                                ` : spoofingBlocked ? `
+                                    <div class="resolver-public-state">
+                                        ${checkmark(true)}
+                                        <span>${spoofingState}</span>
+                                    </div>
+                                ` : `<span class="resolver-unknown-state">Unknown</span>`}
+                            </div>
+                        </div>
                     </div>
                     <div class="map-wrap" id="${mapId}"></div>
                     <div class="graph-section">
@@ -685,6 +807,11 @@
                     </div>
                 </div>
             `;
+
+            if (isDomainSummary) {
+                document.getElementById(forwarderGraphId)?.closest(".graph-section")?.remove();
+                document.getElementById(mapId)?.remove();
+            }
 
             if (summary.anycast_countries && summary.anycast_countries.length > 0) {
                 initMap(mapId, summary.anycast_countries);
@@ -870,6 +997,11 @@
                 if (type === "resolver") {
                     setStatus("Loading resolver summary...", "pending");
                     renderResolverLookupAsync(query);
+                    return;
+                }
+                if (type === "domain") {
+                    setStatus("Loading domain summary...", "pending");
+                    renderDomainLookupAsync(query);
                     return;
                 }
 
