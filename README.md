@@ -148,7 +148,7 @@ python db/apply_schema.py
 
 ### Frontend on a Public Server IP
 
-The frontend is the only service with a public host-port mapping: `8000:8000`. PostgreSQL, RabbitMQ, and the API are available only on Docker networks. pgAdmin is bound to the server loopback interface (`127.0.0.1:5050`) and can be reached remotely using an SSH tunnel:
+Nginx is the only service with a public host-port mapping: `8000:80`. It accepts both domain-name and IP-address requests and forwards them to the private frontend container. PostgreSQL, RabbitMQ, and the API are available only on Docker networks. pgAdmin is bound to the server loopback interface (`127.0.0.1:5050`) and can be reached remotely using an SSH tunnel:
 
 ```bash
 ssh -L 5050:127.0.0.1:5050 <USER>@<SERVER_IP>
@@ -156,13 +156,13 @@ ssh -L 5050:127.0.0.1:5050 <USER>@<SERVER_IP>
 
 Then open `http://localhost:5050` on your workstation.
 
-When serving the frontend via a public IP, replace `<SERVER_IP>` with the server address and set it in `.env`:
+Keep only the internal service names and local hosts in `.env`:
 
 ```env
-DJANGO_ALLOWED_HOSTS=api,frontend,localhost,127.0.0.1,<SERVER_IP>
+DJANGO_ALLOWED_HOSTS=api,frontend,localhost,127.0.0.1
 ```
 
-The public frontend uses same-origin `/api/` paths, so browser requests stay on port 8000 while the separate `api` service remains private.
+Nginx forwards the upstream request with `Host: frontend`, so Django needs only the internal `frontend` hostname in `DJANGO_ALLOWED_HOSTS`; the public domain or IP does not need to be listed. The public frontend uses same-origin `/api/` paths, so browser requests stay on port 8000 while the separate `api` service remains private.
 
 ## Data Gathering (Celery + RabbitMQ)
 
