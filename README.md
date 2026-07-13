@@ -60,7 +60,7 @@ git rm --cached <path>
 
 ## Setup and Requirements
 
-For pgAdmin, remove `.tmp` suffix from `db/pgadmin/servers.json.tmp` and replace placeholder values.
+pgAdmin automatically renders `db/pgadmin/servers.json.tmp` from the PostgreSQL environment variables and loads the resulting server definition. No manual file rename or substitution is required.
 
 ### Hardware Requirements
 

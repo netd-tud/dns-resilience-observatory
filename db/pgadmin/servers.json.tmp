@@ -4,7 +4,7 @@
       "Name": "dns-resilience-observatory",
       "Group": "Servers",
       "Host": "${PGADMIN_HOST}",
-      "Port": ${PGADMIN_PORT},
+      "Port": ${PGADMIN_DATABASE_PORT},
       "MaintenanceDB": "${PGADMIN_DB}",
       "Username": "${PGADMIN_USER}",
       "Password": "${PGADMIN_PASSWORD}",

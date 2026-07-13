@@ -215,17 +215,24 @@ services:
       - frontend_public_network
 
   pgadmin-init:
-    image: alpine:3.20
+    image: python:3.11-alpine
     container_name: dns-resilience-observatory-pgadmin-init
     restart: "no"
     command:
       - /bin/sh
       - -ec
       - |
+        python /provision/provision_servers.py /provisioned/servers.json
         mkdir -p /var/lib/pgadmin/sessions
         chown -R 5050:5050 /var/lib/pgadmin
     volumes:
       - ./db/pgadmin_vol:/var/lib/pgadmin
+      - ./db/pgadmin:/provision:ro
+      - pgadmin_provisioning:/provisioned
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -235,11 +242,13 @@ services:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_SERVER_JSON_FILE: /provisioned/servers.json
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
     ports:
       - "127.0.0.1:${PGADMIN_PORT}:80"
     volumes:
       - ./db/pgadmin_vol:/var/lib/pgadmin
-      - ./db/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - pgadmin_provisioning:/provisioned:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,3 +266,6 @@ networks:
     driver: bridge
   worker_broker_network:
     driver: bridge
+
+volumes:
+  pgadmin_provisioning:
