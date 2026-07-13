@@ -164,6 +164,22 @@ DJANGO_ALLOWED_HOSTS=api,frontend,localhost,127.0.0.1
 
 Nginx forwards the upstream request with `Host: frontend`, so Django needs only the internal `frontend` hostname in `DJANGO_ALLOWED_HOSTS`; the public domain or IP does not need to be listed. The public frontend uses same-origin `/api/` paths, so browser requests stay on port 8000 while the separate `api` service remains private.
 
+## Common problems
+
+### pgAdmin reports permission denied for `/var/lib/pgadmin/sessions`
+
+The `pgadmin-init` service automatically creates the session directory and assigns the pgAdmin container user (UID `5050`) ownership of the mounted `db/pgadmin_vol` directory before pgAdmin starts. No host-side `chmod` or `chown` is required. After deploying this configuration, recreate pgAdmin and its dependency:
+
+```bash
+docker compose up -d --force-recreate pgadmin-init pgadmin
+```
+
+If it still fails, inspect the one-shot initializer:
+
+```bash
+docker compose logs pgadmin-init
+```
+
 ## Data Gathering (Celery + RabbitMQ)
 
 The data-gathering worker runs scheduled tasks and can be triggered manually. Tasks live under
