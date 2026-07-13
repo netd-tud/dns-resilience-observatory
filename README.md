@@ -45,7 +45,7 @@ cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.e
 
 Replace these placeholders for setup:
 
-- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, `DJANGO_SUPERUSER_PASSWORD`, and adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose overrides container-internal values such as frontend `API_BASE_URL=http://api:8000`.
+- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, `DJANGO_SUPERUSER_PASSWORD`, and adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
 - `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
 - `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf`: adjust `modules` (`svcb`, `svcb,ptr,a`, or `svcb,ptr,a,aaaa,https`), `threads`, resolver filters, and `recursive_name_servers` if needed.
@@ -148,29 +148,21 @@ python db/apply_schema.py
 
 ### Frontend on a Public Server IP
 
-When serving the frontend via a public IP instead of localhost, replace `<SERVER_IP>` with the server address.
+The frontend is the only service with a public host-port mapping: `8000:8000`. PostgreSQL, RabbitMQ, and the API are available only on Docker networks. pgAdmin is bound to the server loopback interface (`127.0.0.1:5050`) and can be reached remotely using an SSH tunnel:
 
-In `.env`:
+```bash
+ssh -L 5050:127.0.0.1:5050 <USER>@<SERVER_IP>
+```
+
+Then open `http://localhost:5050` on your workstation.
+
+When serving the frontend via a public IP, replace `<SERVER_IP>` with the server address and set it in `.env`:
 
 ```env
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,<SERVER_IP>
-API_BASE_URL=http://<SERVER_IP>:8000
+DJANGO_ALLOWED_HOSTS=api,frontend,localhost,127.0.0.1,<SERVER_IP>
 ```
 
-In `docker-compose.yml`, add the same host to the API and frontend `DJANGO_ALLOWED_HOSTS`, and allow the frontend origin in the API CORS setting:
-
-```yaml
-api:
-  environment:
-    DJANGO_ALLOWED_HOSTS: "api,localhost,127.0.0.1,<SERVER_IP>"
-    CORS_ALLOWED_ORIGINS: "http://localhost:8001,http://frontend:8000,http://<SERVER_IP>:8001"
-
-frontend:
-  environment:
-    DJANGO_ALLOWED_HOSTS: "frontend,localhost,127.0.0.1,<SERVER_IP>"
-```
-
-The frontend service still uses `API_BASE_URL: "http://api:8000"` inside Docker; this is correct because frontend and API containers communicate over the Docker network.
+The public frontend uses same-origin `/api/` paths, so browser requests stay on port 8000 while the separate `api` service remains private.
 
 ## Data Gathering (Celery + RabbitMQ)
 
