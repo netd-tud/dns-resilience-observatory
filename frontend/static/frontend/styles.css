@@ -324,6 +324,73 @@ button:hover {
     opacity: 0.45;
 }
 
+.qmin-scoped-details,
+.prefix-drilldown {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.qmin-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.risk-prefix-row,
+.entity-prefix-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+    margin-top: 18px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.risk-prefix-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.prefix-page-meta {
+    margin-bottom: 12px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.prefix-drilldown .resolver-table-wrap,
+.dashboard-section .resolver-table-wrap {
+    max-height: 440px;
+}
+
+.prefix-drilldown table,
+.dashboard-section table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.prefix-drilldown th,
+.prefix-drilldown td,
+.dashboard-section th,
+.dashboard-section td {
+    padding: 9px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.entity-card-list {
+    display: grid;
+    gap: 12px;
+}
+
+.entity-prefix-card .prefix-drilldown {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
 .empty {
     color: var(--muted);
 }
@@ -1561,6 +1628,12 @@ button:hover {
     .banner-inner {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .qmin-detail-grid,
+    .risk-prefix-row,
+    .entity-prefix-card {
+        grid-template-columns: 1fr;
     }
 
     .start-view,
