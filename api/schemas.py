@@ -75,6 +75,38 @@ class SpoofingPrefixSummary(Schema):
     routedspoof: Optional[str] = Field(None, description="Routed spoofing result")
 
 
+class ResolverPrefixSummary(Schema):
+    prefix: str = Field(..., description="BGP prefix from resolver_prefix")
+    resolver_count: int = Field(..., description="Matching resolvers mapped to the BGP prefix")
+
+
+class ResolverPrefixPage(Schema):
+    target: str
+    target_type: str
+    page: int
+    page_size: int
+    total_prefixes: int
+    matched_resolver_count: int
+    unmapped_resolver_count: int
+    prefixes: List[ResolverPrefixSummary] = Field(default_factory=list)
+
+
+class SpoofingEntitySummary(Schema):
+    country: Optional[str] = None
+    asn: Optional[int] = None
+    resolver_count: int
+    prefix_count: int
+
+
+class SpoofingEntityPage(Schema):
+    target_type: str
+    page: int
+    page_size: int
+    total_entities: int
+    matched_resolver_count: int
+    entities: List[SpoofingEntitySummary] = Field(default_factory=list)
+
+
 class ResolverAnycastSummaryResponse(Schema):
     resolver_ip: str = Field(..., description="Resolver IP address")
     resolver_found: bool = Field(..., description="True if resolver IP exists in resolver table")

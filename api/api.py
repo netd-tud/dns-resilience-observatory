@@ -2,7 +2,12 @@ import logging
 from django.core.exceptions import ValidationError
 from ninja import NinjaAPI, Query
 
-from api.schemas import DNSResilienceResponse, ResolverAnycastSummaryResponse
+from api.schemas import (
+    DNSResilienceResponse,
+    ResolverAnycastSummaryResponse,
+    ResolverPrefixPage,
+    SpoofingEntityPage,
+)
 from resilience.services import dns_resilience_service
 
 logger = logging.getLogger("api")
@@ -95,6 +100,22 @@ def get_dns_resilience_by_prefix(request, network_prefix: str, limit: int = Quer
     )
 
 
+@api.get("/dns-resilience/prefix/{network_prefix}/qmin", summary="Get QMIN aggregate data for a prefix")
+def get_prefix_qmin(request, network_prefix: str):
+    return dns_resilience_service.get_prefix_qmin(network_prefix)
+
+
+@api.get(
+    "/dns-resilience/prefix/{network_prefix}/qmin/amplification-risk/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get BGP prefixes for amplification-risk resolvers in a prefix",
+)
+def get_prefix_qmin_risk_prefixes(
+    request, network_prefix: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_prefix_qmin_risk_prefixes(network_prefix, page, page_size)
+
+
 @api.get(
     "/dns-resilience/ASN/{asn}",
     response=DNSResilienceResponse,
@@ -123,6 +144,28 @@ def get_asn_qmin(request, asn: str):
 
 
 @api.get(
+    "/dns-resilience/ASN/{asn}/qmin/amplification-risk/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get BGP prefixes for amplification-risk resolvers in an ASN",
+)
+def get_asn_qmin_risk_prefixes(
+    request, asn: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_asn_qmin_risk_prefixes(asn, page, page_size)
+
+
+@api.get(
+    "/dns-resilience/ASN/{asn}/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get database BGP prefixes containing resolvers in an ASN",
+)
+def get_asn_prefixes(
+    request, asn: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_asn_prefixes(asn, page, page_size)
+
+
+@api.get(
     "/dns-resilience/ASN/{asn}/anycast",
     summary="Get anycast prefix coverage for an ASN",
 )
@@ -147,6 +190,17 @@ def get_asn_anycast_sites(request, asn: str):
 def get_asn_spoofing(request, asn: str):
     logger.info("Spoofing request for ASN: %s", asn)
     return dns_resilience_service.get_asn_spoofing(asn)
+
+
+@api.get(
+    "/dns-resilience/ASN/{asn}/spoofing/resolver-prefixes",
+    response=ResolverPrefixPage,
+    summary="Get resolver BGP prefixes for an ASN allowing spoofing",
+)
+def get_asn_spoofing_prefixes(
+    request, asn: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_asn_spoofing_prefixes(asn, page, page_size)
 
 
 @api.get(
@@ -248,6 +302,28 @@ def get_country_qmin(request, country: str):
 
 
 @api.get(
+    "/dns-resilience/country/{country}/qmin/amplification-risk/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get BGP prefixes for amplification-risk resolvers in a country",
+)
+def get_country_qmin_risk_prefixes(
+    request, country: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_country_qmin_risk_prefixes(country, page, page_size)
+
+
+@api.get(
+    "/dns-resilience/country/{country}/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get database BGP prefixes containing resolvers in a country",
+)
+def get_country_prefixes(
+    request, country: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_country_prefixes(country, page, page_size)
+
+
+@api.get(
     "/dns-resilience/country/{country}/anycast",
     summary="Get anycast prefix coverage for a country",
 )
@@ -272,6 +348,17 @@ def get_country_anycast_sites(request, country: str):
 def get_country_spoofing(request, country: str):
     logger.info("Spoofing request for country: %s", country)
     return dns_resilience_service.get_country_spoofing(country)
+
+
+@api.get(
+    "/dns-resilience/country/{country}/spoofing/resolver-prefixes",
+    response=ResolverPrefixPage,
+    summary="Get resolver BGP prefixes for spoofing environments in a country",
+)
+def get_country_spoofing_prefixes(
+    request, country: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_country_spoofing_prefixes(country, page, page_size)
 
 
 @api.get(
@@ -319,6 +406,28 @@ def get_global_qmin(request):
     return dns_resilience_service.get_global_qmin_summary()
 
 
+@api.get(
+    "/dns-resilience/global/qmin/amplification-risk/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get BGP prefixes for all amplification-risk resolvers",
+)
+def get_global_qmin_risk_prefixes(
+    request, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_global_qmin_risk_prefixes(page, page_size)
+
+
+@api.get(
+    "/dns-resilience/qmin/{state}/prefixes",
+    response=ResolverPrefixPage,
+    summary="Get BGP prefixes for resolvers with QMIN enabled or disabled",
+)
+def get_qmin_state_prefixes(
+    request, state: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_qmin_state_prefixes(state, page, page_size)
+
+
 @api.get("/dns-resilience/global/protocols", summary="Get global resolver protocol summary")
 def get_global_protocols(request):
     logger.info("Global resolver protocol summary request")
@@ -329,6 +438,28 @@ def get_global_protocols(request):
 def get_global_spoofing(request):
     logger.info("Global resolver spoofing summary request")
     return dns_resilience_service.get_global_spoofing_environment_summary()
+
+
+@api.get(
+    "/dns-resilience/spoofing/countries",
+    response=SpoofingEntityPage,
+    summary="Get countries with resolvers in spoofing environments",
+)
+def get_spoofing_countries(
+    request, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_spoofing_countries(page, page_size)
+
+
+@api.get(
+    "/dns-resilience/spoofing/ASNs",
+    response=SpoofingEntityPage,
+    summary="Get ASNs allowing spoofing that contain resolvers",
+)
+def get_spoofing_asns(
+    request, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100)
+):
+    return dns_resilience_service.get_spoofing_asns(page, page_size)
 
 
 @api.get("/dns-resilience/global/countries", summary="Get global resolver country summary")

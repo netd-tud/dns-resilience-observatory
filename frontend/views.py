@@ -7,8 +7,8 @@ import threading
 import time
 
 
-RESOLVER_DASHBOARD_CACHE_KEY = "frontend:resolver-dashboard-html:v1"
-RESOLVER_DASHBOARD_CACHE_LOCK_KEY = "frontend:resolver-dashboard-html:v1:refreshing"
+RESOLVER_DASHBOARD_CACHE_KEY = "frontend:resolver-dashboard-html:v2"
+RESOLVER_DASHBOARD_CACHE_LOCK_KEY = "frontend:resolver-dashboard-html:v2:refreshing"
 RESOLVER_DASHBOARD_CACHE_TTL = 60 * 60
 
 

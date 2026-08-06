@@ -22,7 +22,7 @@
         <section class="dashboard-view" id="dashboard-view">
             <section class="query-card">
                 <div class="query-grid">
-                    <input id="query-input" type="text" placeholder="Query by resolver IP, domain, prefix, ASN, or country" />
+                    <input id="query-input" type="text" placeholder="Query by IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter" />
                     <button id="search-button" type="button">Run Lookup</button>
                 </div>
                 <div class="examples">
@@ -31,6 +31,10 @@
                     <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
                     <span class="chip" data-value="AS3320">AS3320</span>
                     <span class="chip" data-value="DE">DE</span>
+                    <span class="chip" data-value="qmin:enabled">qmin:enabled</span>
+                    <span class="chip" data-value="qmin:disabled">qmin:disabled</span>
+                    <span class="chip" data-value="spoofing:countries">spoofing:countries</span>
+                    <span class="chip" data-value="spoofing:ases">spoofing:ases</span>
                 </div>
                 <div class="status" id="status">
                     <span class="status-dot"></span>
@@ -311,7 +315,7 @@
                             <div class="qmin-bar-row">
                                 <span>${entry.value}</span>
                                 <div class="qmin-bar-track"><span class="qmin-bar-fill" style="width: ${width}%"></span></div>
-                                <strong>${formatEngineering(entry.count)}</strong>
+                                <strong>${formatEngineering(entry.count)} (${formatPercent(entry.percent)})</strong>
                             </div>
                         `;
                     }).join("")}
@@ -510,6 +514,10 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="risk-prefix-actions">
+                                <button id="dashboard-qmin-risk-prefix-button" type="button">Show affected BGP prefixes</button>
+                            </div>
+                            <div class="prefix-drilldown" id="dashboard-qmin-risk-prefixes" hidden></div>
                             <div>
                                 <div class="metric-label">Most frequent max_minimise_count</div>
                                 <div id="dashboard-qmin-max-bars">${loadingText()}</div>
@@ -566,9 +574,59 @@
             return payload;
         }
 
+        async function loadDashboardRiskPrefixes(page = 1) {
+            const container = document.getElementById("dashboard-qmin-risk-prefixes");
+            if (!container) {
+                return;
+            }
+            container.hidden = false;
+            container.innerHTML = loadingText();
+            try {
+                const payload = await fetchDashboardEndpoint(`/api/dns-resilience/global/qmin/amplification-risk/prefixes?page=${page}&page_size=25`);
+                const totalPages = Math.max(1, Math.ceil(Number(payload.total_prefixes || 0) / Number(payload.page_size || 25)));
+                const unmapped = Number(payload.unmapped_resolver_count || 0);
+                container.innerHTML = `
+                    <div class="prefix-page-meta">
+                        ${formatNumber(payload.total_prefixes)} BGP prefixes covering ${formatNumber(Number(payload.matched_resolver_count || 0) - unmapped)} risk resolvers.
+                        ${unmapped ? `${formatNumber(unmapped)} risk resolvers have no database BGP prefix.` : ""}
+                    </div>
+                    ${(payload.prefixes || []).length ? `
+                        <div class="resolver-table-wrap">
+                            <table>
+                                <thead><tr><th>BGP prefix</th><th>Risk resolvers</th></tr></thead>
+                                <tbody>${payload.prefixes.map((row) => `
+                                    <tr><td><a class="resolver-link" href="/search.html?q=${encodeURIComponent(row.prefix)}">${row.prefix}</a></td><td>${formatNumber(row.resolver_count)}</td></tr>
+                                `).join("")}</tbody>
+                            </table>
+                        </div>
+                        <div class="pager">
+                            <button class="pager-button dashboard-risk-page" type="button" data-page="${payload.page - 1}" ${payload.page <= 1 ? "disabled" : ""}>Previous</button>
+                            <span>Page ${payload.page} of ${totalPages}</span>
+                            <button class="pager-button dashboard-risk-page" type="button" data-page="${payload.page + 1}" ${payload.page >= totalPages ? "disabled" : ""}>Next</button>
+                        </div>
+                    ` : `<div class="empty">No database BGP prefixes match this risk filter.</div>`}
+                `;
+                container.querySelectorAll(".dashboard-risk-page").forEach((button) => {
+                    button.addEventListener("click", () => loadDashboardRiskPrefixes(Number(button.dataset.page)));
+                });
+            } catch (error) {
+                container.innerHTML = `<div class="empty">${error.message}</div>`;
+            }
+        }
+
         async function loadDashboard() {
             setStatus("Loading dashboard metrics...", "pending");
             const mapId = renderDashboardShell();
+            document.getElementById("dashboard-qmin-risk-prefix-button")?.addEventListener("click", (event) => {
+                const panel = document.getElementById("dashboard-qmin-risk-prefixes");
+                if (!panel.hidden) {
+                    panel.hidden = true;
+                    event.currentTarget.textContent = "Show affected BGP prefixes";
+                    return;
+                }
+                event.currentTarget.textContent = "Hide affected BGP prefixes";
+                loadDashboardRiskPrefixes(1);
+            });
             let completed = 0;
             let failed = 0;
             const total = 11;
@@ -731,6 +789,10 @@
             const trimmed = value.trim();
             if (!trimmed) {
                 return null;
+            }
+            const normalized = trimmed.toLowerCase();
+            if (["qmin:enabled", "qmin:disabled", "spoofing:countries", "spoofing:ases"].includes(normalized)) {
+                return "filter";
             }
             if (trimmed.includes("/")) {
                 return "prefix";
@@ -1306,7 +1368,7 @@
             const query = singleAddressFromPrefix(rawQuery) || rawQuery;
             const type = detectQueryType(query);
             if (!type) {
-                setStatus("Enter an IP, domain, prefix, ASN, or country code.", "error");
+                setStatus("Enter an IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter.", "error");
                 return;
             }
 

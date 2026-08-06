@@ -22,7 +22,7 @@
         <section class="dashboard-view" id="dashboard-view">
             <section class="query-card">
                 <div class="query-grid">
-                    <input id="query-input" type="text" placeholder="Query by resolver IP, domain, prefix, ASN, or country" />
+                    <input id="query-input" type="text" placeholder="Query by IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter" />
                     <button id="search-button" type="button">Run Lookup</button>
                 </div>
                 <div class="examples">
@@ -31,6 +31,10 @@
                     <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
                     <span class="chip" data-value="AS3320">AS3320</span>
                     <span class="chip" data-value="DE">DE</span>
+                    <span class="chip" data-value="qmin:enabled">qmin:enabled</span>
+                    <span class="chip" data-value="qmin:disabled">qmin:disabled</span>
+                    <span class="chip" data-value="spoofing:countries">spoofing:countries</span>
+                    <span class="chip" data-value="spoofing:ases">spoofing:ases</span>
                 </div>
                 <div class="status" id="status">
                     <span class="status-dot"></span>
@@ -113,6 +117,124 @@
                 throw new Error(payload.detail || payload.error || `${path} request failed.`);
             }
             return payload;
+        }
+
+        function qminDistributionBars(rows) {
+            const entries = rows || [];
+            if (!entries.length) {
+                return `<div class="metric-subvalue">No measured values.</div>`;
+            }
+            const maxCount = Math.max(...entries.map((entry) => Number(entry.count || 0)), 1);
+            return `
+                <div class="qmin-bar-group">
+                    ${entries.map((entry) => {
+                        const count = Number(entry.count || 0);
+                        return `
+                            <div class="overview-bar-row">
+                                <span>${entry.value ?? "-"}</span>
+                                <div class="qmin-bar-track"><span class="qmin-bar-fill" style="width: ${(count / maxCount) * 100}%"></span></div>
+                                <strong>${formatNumber(count)} (${formatPercent(entry.percent)})</strong>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function prefixPageHtml(payload) {
+            const rows = payload.prefixes || [];
+            const totalPages = Math.max(1, Math.ceil(Number(payload.total_prefixes || 0) / Number(payload.page_size || 25)));
+            const unmapped = Number(payload.unmapped_resolver_count || 0);
+            return `
+                <div class="prefix-page-meta">
+                    ${formatNumber(payload.total_prefixes)} BGP prefixes covering ${formatNumber(Number(payload.matched_resolver_count || 0) - unmapped)} matching resolvers.
+                    ${unmapped ? `${formatNumber(unmapped)} matching resolvers have no database BGP prefix.` : ""}
+                </div>
+                ${rows.length ? `
+                    <div class="resolver-table-wrap">
+                        <table>
+                            <thead><tr><th>BGP prefix</th><th>Matching resolvers</th></tr></thead>
+                            <tbody>${rows.map((row) => `
+                                <tr>
+                                    <td><a class="resolver-link" href="/search.html?q=${encodeURIComponent(row.prefix)}">${row.prefix}</a></td>
+                                    <td>${formatNumber(row.resolver_count)}</td>
+                                </tr>
+                            `).join("")}</tbody>
+                        </table>
+                    </div>
+                    <div class="pager">
+                        <button class="pager-button prefix-page-button" type="button" data-page="${payload.page - 1}" ${payload.page <= 1 ? "disabled" : ""}>Previous</button>
+                        <span>Page ${payload.page} of ${totalPages}</span>
+                        <button class="pager-button prefix-page-button" type="button" data-page="${payload.page + 1}" ${payload.page >= totalPages ? "disabled" : ""}>Next</button>
+                    </div>
+                ` : `<div class="empty">No database BGP prefixes match this filter.</div>`}
+            `;
+        }
+
+        function renderPrefixPayload(container, payload, path) {
+            container.innerHTML = prefixPageHtml(payload);
+            container.querySelectorAll(".prefix-page-button").forEach((button) => {
+                button.addEventListener("click", () => loadPrefixPage(container.id, path, Number(button.dataset.page)));
+            });
+        }
+
+        async function loadPrefixPage(containerId, path, page = 1) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                return;
+            }
+            container.hidden = false;
+            container.innerHTML = `<div class="empty">${loadingText()}</div>`;
+            try {
+                const payload = await fetchApiPath(`${path}?page=${page}&page_size=25`);
+                renderPrefixPayload(container, payload, path);
+            } catch (error) {
+                container.innerHTML = `<div class="empty">${error.message}</div>`;
+            }
+        }
+
+        function qminDetailHtml(qmin, panelId) {
+            const measured = Number(qmin.measured_count || 0);
+            const risk = Number(qmin.amplification_risk_count || 0);
+            return `
+                <div class="qmin-detail-grid">
+                    <div>
+                        <div class="metric-label">Top 10 max_minimise_count values</div>
+                        ${qminDistributionBars(qmin.max_minimise_distribution)}
+                    </div>
+                    <div>
+                        <div class="metric-label">Top 10 minimize_one_lab values</div>
+                        ${qminDistributionBars(qmin.minimize_one_lab_distribution)}
+                    </div>
+                </div>
+                <div class="risk-prefix-row">
+                    <div>
+                        <div class="metric-label">Amplification risk (more than 10 iterations)</div>
+                        <div class="metric-value">${formatNumber(risk)}</div>
+                        <div class="metric-subvalue">${formatPercent(qmin.amplification_risk_pc)} of ${formatNumber(measured)} measured resolvers</div>
+                    </div>
+                    <button class="risk-prefix-button" type="button" data-panel="${panelId}">Show affected BGP prefixes</button>
+                </div>
+            `;
+        }
+
+        function setQminDetails(containerId, qmin, riskPath) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                return;
+            }
+            const panelId = `${containerId}-prefixes`;
+            container.innerHTML = `${qminDetailHtml(qmin, panelId)}<div class="prefix-drilldown" id="${panelId}" hidden></div>`;
+            container.querySelector(".risk-prefix-button")?.addEventListener("click", (event) => {
+                const panel = document.getElementById(event.currentTarget.dataset.panel);
+                if (!panel.hidden) {
+                    panel.hidden = true;
+                    event.currentTarget.textContent = "Show affected BGP prefixes";
+                    return;
+                }
+                event.currentTarget.textContent = "Hide affected BGP prefixes";
+                loadPrefixPage(panel.id, riskPath, 1);
+            });
         }
 
         function metricCard(label, value, subvalue = "") {
@@ -232,6 +354,16 @@
             if (!trimmed) {
                 return null;
             }
+            const normalized = trimmed.toLowerCase();
+            if (normalized === "qmin:enabled" || normalized === "qmin:disabled") {
+                return "qmin";
+            }
+            if (normalized === "spoofing:countries") {
+                return "spoofing_countries";
+            }
+            if (normalized === "spoofing:ases") {
+                return "spoofing_asns";
+            }
             if (trimmed.includes("/")) {
                 return "prefix";
             }
@@ -290,6 +422,16 @@
             }
             if (type === "protocol") {
                 return `${apiBaseUrl}/api/dns-resilience/protocol/${encodeURIComponent(query.toLowerCase())}`;
+            }
+            if (type === "qmin") {
+                const state = query.toLowerCase().split(":", 2)[1];
+                return `${apiBaseUrl}/api/dns-resilience/qmin/${state}/prefixes?page=1&page_size=25`;
+            }
+            if (type === "spoofing_countries") {
+                return `${apiBaseUrl}/api/dns-resilience/spoofing/countries?page=1&page_size=25`;
+            }
+            if (type === "spoofing_asns") {
+                return `${apiBaseUrl}/api/dns-resilience/spoofing/ASNs?page=1&page_size=25`;
             }
             return null;
         }
@@ -366,6 +508,84 @@
             });
         }
 
+        function renderQminPrefixSearch(payload, state) {
+            const path = `/api/dns-resilience/qmin/${state}/prefixes`;
+            results.innerHTML = `
+                <div class="dashboard-section">
+                    <div class="section-header">
+                        <div><h2>QMIN ${state}</h2><p>Distinct database BGP prefixes with matching resolvers</p></div>
+                    </div>
+                    <div id="qmin-filter-prefixes"></div>
+                </div>
+            `;
+            renderPrefixPayload(document.getElementById("qmin-filter-prefixes"), payload, path);
+        }
+
+        async function loadSpoofingEntityPage(path, page = 1) {
+            results.innerHTML = `<div class="empty">${loadingText()}</div>`;
+            try {
+                const payload = await fetchApiPath(`${path}?page=${page}&page_size=25`);
+                renderSpoofingEntityPage(payload, path);
+            } catch (error) {
+                results.innerHTML = `<div class="empty">${error.message}</div>`;
+                setStatus("Spoofing search failed.", "error");
+            }
+        }
+
+        function renderSpoofingEntityPage(payload, path) {
+            const isCountry = payload.target_type === "spoofing_countries";
+            const entities = payload.entities || [];
+            const totalPages = Math.max(1, Math.ceil(Number(payload.total_entities || 0) / Number(payload.page_size || 25)));
+            results.innerHTML = `
+                <div class="dashboard-section">
+                    <div class="section-header">
+                        <div>
+                            <h2>${isCountry ? "Countries with resolvers in spoofing environments" : "ASes allowing spoofing with resolvers"}</h2>
+                            <p>${formatNumber(payload.total_entities)} matching ${isCountry ? "countries" : "ASes"}; all drill-downs use resolver BGP prefixes.</p>
+                        </div>
+                    </div>
+                    <div class="entity-card-list">
+                        ${entities.map((entity, index) => {
+                            const value = isCountry ? entity.country : `AS${entity.asn}`;
+                            const prefixPath = isCountry
+                                ? `/api/dns-resilience/country/${encodeURIComponent(entity.country)}/spoofing/resolver-prefixes`
+                                : `/api/dns-resilience/ASN/AS${encodeURIComponent(entity.asn)}/spoofing/resolver-prefixes`;
+                            return `
+                                <div class="entity-prefix-card">
+                                    <div>
+                                        <a class="tile-title resolver-link" href="/search.html?q=${encodeURIComponent(value)}">${value}</a>
+                                        <div class="metric-subvalue">${formatNumber(entity.resolver_count)} resolvers / ${formatNumber(entity.prefix_count)} BGP prefixes</div>
+                                    </div>
+                                    <button class="entity-prefix-button" type="button" data-panel="spoof-entity-${index}" data-path="${prefixPath}">Show BGP prefixes</button>
+                                    <div class="prefix-drilldown" id="spoof-entity-${index}" hidden></div>
+                                </div>
+                            `;
+                        }).join("") || `<div class="empty">No matching ${isCountry ? "countries" : "ASes"}.</div>`}
+                    </div>
+                    <div class="pager">
+                        <button class="pager-button entity-page-button" type="button" data-page="${payload.page - 1}" ${payload.page <= 1 ? "disabled" : ""}>Previous</button>
+                        <span>Page ${payload.page} of ${totalPages}</span>
+                        <button class="pager-button entity-page-button" type="button" data-page="${payload.page + 1}" ${payload.page >= totalPages ? "disabled" : ""}>Next</button>
+                    </div>
+                </div>
+            `;
+            results.querySelectorAll(".entity-prefix-button").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const panel = document.getElementById(button.dataset.panel);
+                    if (!panel.hidden) {
+                        panel.hidden = true;
+                        button.textContent = "Show BGP prefixes";
+                        return;
+                    }
+                    button.textContent = "Hide BGP prefixes";
+                    loadPrefixPage(panel.id, button.dataset.path, 1);
+                });
+            });
+            results.querySelectorAll(".entity-page-button").forEach((button) => {
+                button.addEventListener("click", () => loadSpoofingEntityPage(path, Number(button.dataset.page)));
+            });
+        }
+
         function renderResults(payload) {
             if (payload && (payload.target_type === "country" || payload.target_type === "asn" || payload.target_type === "prefix")) {
                 const isAsn = payload.target_type === "asn";
@@ -408,11 +628,12 @@
                             ${summaryCard("Resolvers", resolverTotal, "Public", publicCount, "Non-public", closedCount, publicPc)}
                             ${summaryCard("Forwarders", forwarderTotal, "Recursive", recursiveForwarders, "Transparent", transparentForwarders, recursiveForwarderPc)}
                             ${summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, `${formatNumber(payload.anycast_prefix_count || 0)} prefixes / ${formatNumber(payload.anycast_country_instance_count || 0)} country instances / ${formatNumber(payload.anycast_asn_instance_count || 0)} ASN instances`)}
-                            ${summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`)}
+                            <div id="prefix-qmin-card">${summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`)}</div>
                             ${spoofingCard(spoofingTotal, spoofingBlocked, spoofingAllow, spoofingUnknown)}
                             ${gauge("DNSSEC validating", dnssecValidating, payload.dnssec_validating_pc == null ? `No ${dnssecScope.toLowerCase()} DNSSEC data` : `${dnssecScope} validation`)}
                             ${gauge("DNSSEC partial validating", dnssecPartial, payload.dnssec_partial_validating_pc == null ? `No ${dnssecScope.toLowerCase()} DNSSEC data` : `${dnssecScope} partial validation`)}
                         </div>
+                        ${isPrefix ? `<div class="qmin-scoped-details" id="prefix-qmin-details">${loadingText()}</div>` : ""}
                     </div>
                     ${isPrefix && payload.resolvers && payload.resolvers.length
                         ? `<div class="dashboard-section">
@@ -428,6 +649,21 @@
                 `;
                 if (isPrefix && payload.resolvers && payload.resolvers.length) {
                     renderResolverTable(document.getElementById("prefix-resolver-table"), payload.resolvers);
+                }
+                if (isPrefix) {
+                    const encodedPrefix = encodeURIComponent(encodeURIComponent(payload.target));
+                    const prefixPath = `/api/dns-resilience/prefix/${encodedPrefix}`;
+                    fetchApiPath(`${prefixPath}/qmin`)
+                        .then((qmin) => {
+                            const measured = Number(qmin.measured_count || 0);
+                            const yes = Number(qmin.yes_count || 0);
+                            const no = Number(qmin.no_count || 0);
+                            const unstable = Number(qmin.unstable_count || 0);
+                            const unknown = Math.max(resolverTotal - measured, 0);
+                            setHtml("prefix-qmin-card", summaryCard("QMIN", measured, "Yes", yes, "No", no, qmin.yes_pc, `${formatNumber(unstable)} unstable / ${formatNumber(unknown)} not measured`));
+                            setQminDetails("prefix-qmin-details", qmin, `${prefixPath}/qmin/amplification-risk/prefixes`);
+                        })
+                        .catch(() => setLoadingError("prefix-qmin-details"));
                 }
                 return;
             }
@@ -482,8 +718,17 @@
                         <div id="scoped-spoofing-card">${spoofingCard(0, 0, 0, 0)}</div>
                         ${dnssecCard}
                     </div>
+                    <div class="qmin-scoped-details" id="scoped-qmin-details">${loadingText()}</div>
+                </div>
+                <div class="dashboard-section">
+                    <div class="section-header">
+                        <div><h2>BGP prefixes with resolvers</h2><p>Prefixes are read from the resolver database.</p></div>
+                    </div>
+                    <div id="scoped-resolver-prefixes">${loadingText()}</div>
                 </div>
             `;
+
+            loadPrefixPage("scoped-resolver-prefixes", `${targetPath}/prefixes`, 1);
 
             let completed = 0;
             let failed = 0;
@@ -507,8 +752,13 @@
                     const qminUnknown = Math.max(resolverTotal - qminMeasured, 0);
                     const qminYesPc = qminMeasured ? (qminYes / qminMeasured) * 100 : 0;
                     setHtml("scoped-qmin-card", summaryCard("QMIN", qminMeasured, "Yes", qminYes, "No", qminNo, qminYesPc, `${formatNumber(qminUnstable)} unstable / ${formatNumber(qminUnknown)} not measured`));
+                    setQminDetails("scoped-qmin-details", qmin, `${targetPath}/qmin/amplification-risk/prefixes`);
                 })
-                .catch(() => { failed += 1; setLoadingError("scoped-qmin-card"); })
+                .catch(() => {
+                    failed += 1;
+                    setLoadingError("scoped-qmin-card");
+                    setLoadingError("scoped-qmin-details");
+                })
                 .finally(markDone);
 
             Promise.all([
@@ -985,7 +1235,7 @@
             const query = singleAddressFromPrefix(rawQuery) || rawQuery;
             const type = detectQueryType(query);
             if (!type) {
-                setStatus("Enter an IP, domain, prefix, ASN, or country code.", "error");
+                setStatus("Enter an IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter.", "error");
                 return;
             }
 
@@ -1014,6 +1264,20 @@
                 if (!response.ok) {
                     setStatus(payload.detail || payload.error || "Lookup failed.", "error");
                     results.innerHTML = `<div class="empty">${payload.detail || payload.error || "Request failed."}</div>`;
+                    return;
+                }
+                if (type === "qmin") {
+                    const state = query.toLowerCase().split(":", 2)[1];
+                    renderQminPrefixSearch(payload, state);
+                    setStatus(`QMIN ${state} BGP prefixes loaded.`, "ok");
+                    return;
+                }
+                if (type === "spoofing_countries" || type === "spoofing_asns") {
+                    const path = type === "spoofing_countries"
+                        ? "/api/dns-resilience/spoofing/countries"
+                        : "/api/dns-resilience/spoofing/ASNs";
+                    renderSpoofingEntityPage(payload, path);
+                    setStatus("Spoofing environment results loaded.", "ok");
                     return;
                 }
                 if (type === "country" || type === "asn") {

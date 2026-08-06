@@ -29,6 +29,12 @@ def cached(ttl: int = 300):
 class DNSResilienceService:
     _TCP_PATTERN = r"(^|[^a-z])tcp([^a-z]|$)"
     _UDP_PATTERN = r"(^|[^a-z])udp([^a-z]|$)"
+    _SPOOFING_ALLOW_SQL = """
+        (
+            LOWER(COALESCE(s.privatespoof, '')) IN ('received', 'rewritten')
+            OR LOWER(COALESCE(s.routedspoof, '')) IN ('received', 'rewritten')
+        )
+    """
 
     def _fetchall(self, sql: str, params: list | tuple | None = None) -> list[dict]:
         with connection.cursor() as cursor:
@@ -574,44 +580,216 @@ class DNSResilienceService:
     @cached()
     def get_asn_qmin(self, asn: str) -> dict:
         normalized = self.validate_asn(asn)
-        row = self._fetchone(
-            """
-            SELECT
-                %s::BIGINT AS asn,
-                COUNT(q.resolver_id)::INTEGER AS measured_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'yes')::INTEGER AS yes_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'no')::INTEGER AS no_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'unstable')::INTEGER AS unstable_count,
-                MAX(q.last_update_ts) AS last_update_ts
-            FROM resolver_asn ra
-            JOIN resolver r ON r.resolver_id = ra.resolver_id
-            LEFT JOIN qmin_resolver q ON q.resolver_id = r.resolver_id
-            WHERE ra.asn = %s
-            """,
-            [normalized, normalized],
+        summary = self._qmin_scope_summary(
+            "SELECT DISTINCT resolver_id FROM resolver_asn WHERE asn = %s",
+            [normalized],
         )
-        return row or {"asn": normalized, "measured_count": 0}
+        return {"asn": normalized, **summary}
 
     @cached()
     def get_country_qmin(self, country: str) -> dict:
         normalized = self.validate_country_code(country)
-        row = self._fetchone(
-            """
-            SELECT
-                %s AS country,
-                COUNT(q.resolver_id)::INTEGER AS measured_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'yes')::INTEGER AS yes_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'no')::INTEGER AS no_count,
-                COUNT(*) FILTER (WHERE q.qmin = 'unstable')::INTEGER AS unstable_count,
-                MAX(q.last_update_ts) AS last_update_ts
-            FROM resolver_location rl
-            JOIN resolver r ON r.resolver_id = rl.resolver_id
-            LEFT JOIN qmin_resolver q ON q.resolver_id = r.resolver_id
-            WHERE rl.country = %s
-            """,
-            [normalized, normalized],
+        summary = self._qmin_scope_summary(
+            "SELECT DISTINCT resolver_id FROM resolver_location WHERE country = %s",
+            [normalized],
         )
-        return row or {"country": normalized, "measured_count": 0}
+        return {"country": normalized, **summary}
+
+    @cached()
+    def get_prefix_qmin(self, prefix: str) -> dict:
+        normalized = self.validate_network_prefix(prefix)
+        summary = self._qmin_scope_summary(
+            "SELECT DISTINCT resolver_id FROM resolver_prefix WHERE prefix = %s::cidr",
+            [normalized],
+        )
+        return {"prefix": normalized, **summary}
+
+    def _qmin_scope_summary(self, scope_sql: str, params: list) -> dict:
+        row = self._fetchone(
+            f"""
+            WITH scoped_resolver AS ({scope_sql})
+            SELECT
+                COUNT(q.resolver_id)::INTEGER AS measured_count,
+                COUNT(q.resolver_id) FILTER (WHERE q.qmin = 'yes')::INTEGER AS yes_count,
+                COUNT(q.resolver_id) FILTER (WHERE q.qmin = 'no')::INTEGER AS no_count,
+                COUNT(q.resolver_id) FILTER (WHERE q.qmin = 'unstable')::INTEGER AS unstable_count,
+                COUNT(q.resolver_id) FILTER (WHERE q.max_minimise_count > 10)::INTEGER
+                    AS amplification_risk_count,
+                MAX(q.last_update_ts) AS last_update_ts
+            FROM scoped_resolver sr
+            LEFT JOIN qmin_resolver q ON q.resolver_id = sr.resolver_id
+            """,
+            params,
+        ) or {}
+        max_distribution = self._fetchall(
+            f"""
+            WITH scoped_resolver AS ({scope_sql})
+            , distribution AS (
+                SELECT q.max_minimise_count AS value, COUNT(*)::INTEGER AS count
+                FROM scoped_resolver sr
+                JOIN qmin_resolver q ON q.resolver_id = sr.resolver_id
+                WHERE q.max_minimise_count IS NOT NULL
+                GROUP BY q.max_minimise_count
+            )
+            SELECT value, count,
+                   ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
+            FROM distribution
+            ORDER BY count DESC, value
+            LIMIT 10
+            """,
+            params,
+        )
+        one_label_distribution = self._fetchall(
+            f"""
+            WITH scoped_resolver AS ({scope_sql})
+            , distribution AS (
+                SELECT q.minimize_one_lab AS value, COUNT(*)::INTEGER AS count
+                FROM scoped_resolver sr
+                JOIN qmin_resolver q ON q.resolver_id = sr.resolver_id
+                WHERE q.minimize_one_lab IS NOT NULL
+                GROUP BY q.minimize_one_lab
+            )
+            SELECT value, count,
+                   ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
+            FROM distribution
+            ORDER BY count DESC, value
+            LIMIT 10
+            """,
+            params,
+        )
+        measured = row.get("measured_count", 0) or 0
+        yes = row.get("yes_count", 0) or 0
+        no = row.get("no_count", 0) or 0
+        risk = row.get("amplification_risk_count", 0) or 0
+        return {
+            "measured_count": measured,
+            "yes_count": yes,
+            "no_count": no,
+            "unstable_count": row.get("unstable_count", 0) or 0,
+            "yes_pc": self._pc(yes, measured),
+            "no_pc": self._pc(no, measured),
+            "amplification_risk_count": risk,
+            "amplification_risk_pc": self._pc(risk, measured),
+            "max_minimise_distribution": max_distribution,
+            "minimize_one_lab_distribution": one_label_distribution,
+            "last_update_ts": row.get("last_update_ts"),
+        }
+
+    def _prefix_page(
+        self,
+        *,
+        scope_sql: str,
+        params: list,
+        target: str,
+        target_type: str,
+        page: int,
+        page_size: int,
+    ) -> dict:
+        totals = self._fetchone(
+            f"""
+            WITH scoped_resolver AS ({scope_sql})
+            SELECT
+                COUNT(DISTINCT sr.resolver_id)::INTEGER AS matched_resolver_count,
+                COUNT(DISTINCT rp.resolver_id)::INTEGER AS mapped_resolver_count,
+                COUNT(DISTINCT rp.prefix)::INTEGER AS total_prefixes
+            FROM scoped_resolver sr
+            LEFT JOIN resolver_prefix rp ON rp.resolver_id = sr.resolver_id
+            """,
+            params,
+        ) or {}
+        rows = self._fetchall(
+            f"""
+            WITH scoped_resolver AS ({scope_sql})
+            SELECT rp.prefix::TEXT AS prefix, COUNT(DISTINCT sr.resolver_id)::INTEGER AS resolver_count
+            FROM scoped_resolver sr
+            JOIN resolver_prefix rp ON rp.resolver_id = sr.resolver_id
+            GROUP BY rp.prefix
+            ORDER BY resolver_count DESC, rp.prefix::TEXT
+            LIMIT %s OFFSET %s
+            """,
+            [*params, page_size, (page - 1) * page_size],
+        )
+        matched = totals.get("matched_resolver_count", 0) or 0
+        mapped = totals.get("mapped_resolver_count", 0) or 0
+        return {
+            "target": target,
+            "target_type": target_type,
+            "page": page,
+            "page_size": page_size,
+            "total_prefixes": totals.get("total_prefixes", 0) or 0,
+            "matched_resolver_count": matched,
+            "unmapped_resolver_count": max(matched - mapped, 0),
+            "prefixes": rows,
+        }
+
+    @cached()
+    def get_asn_prefixes(self, asn: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_asn(asn)
+        return self._prefix_page(
+            scope_sql="SELECT DISTINCT resolver_id FROM resolver_asn WHERE asn = %s",
+            params=[normalized], target=f"AS{normalized}", target_type="asn", page=page, page_size=page_size,
+        )
+
+    @cached()
+    def get_country_prefixes(self, country: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_country_code(country)
+        return self._prefix_page(
+            scope_sql="SELECT DISTINCT resolver_id FROM resolver_location WHERE country = %s",
+            params=[normalized], target=normalized, target_type="country", page=page, page_size=page_size,
+        )
+
+    @cached()
+    def get_qmin_state_prefixes(self, state: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = state.strip().lower()
+        states = {"enabled": "yes", "disabled": "no"}
+        if normalized not in states:
+            raise ValidationError("QMIN state must be 'enabled' or 'disabled'")
+        return self._prefix_page(
+            scope_sql="SELECT DISTINCT resolver_id FROM qmin_resolver WHERE qmin = %s",
+            params=[states[normalized]], target=f"qmin:{normalized}", target_type="qmin",
+            page=page, page_size=page_size,
+        )
+
+    def _qmin_risk_prefixes(
+        self, scope_sql: str, params: list, target: str, target_type: str, page: int, page_size: int
+    ) -> dict:
+        return self._prefix_page(
+            scope_sql=f"""
+                WITH base_scope AS ({scope_sql})
+                SELECT DISTINCT bs.resolver_id
+                FROM base_scope bs
+                JOIN qmin_resolver q ON q.resolver_id = bs.resolver_id
+                WHERE q.max_minimise_count > 10
+            """,
+            params=params, target=target, target_type=target_type, page=page, page_size=page_size,
+        )
+
+    @cached()
+    def get_global_qmin_risk_prefixes(self, page: int = 1, page_size: int = 25) -> dict:
+        return self._qmin_risk_prefixes(
+            "SELECT resolver_id FROM resolver", [], "global", "global", page, page_size
+        )
+
+    @cached()
+    def get_asn_qmin_risk_prefixes(self, asn: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_asn(asn)
+        return self._qmin_risk_prefixes(
+            "SELECT resolver_id FROM resolver_asn WHERE asn = %s", [normalized], f"AS{normalized}", "asn", page, page_size
+        )
+
+    @cached()
+    def get_country_qmin_risk_prefixes(self, country: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_country_code(country)
+        return self._qmin_risk_prefixes(
+            "SELECT resolver_id FROM resolver_location WHERE country = %s", [normalized], normalized, "country", page, page_size
+        )
+
+    @cached()
+    def get_prefix_qmin_risk_prefixes(self, prefix: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_network_prefix(prefix)
+        return self._qmin_risk_prefixes(
+            "SELECT resolver_id FROM resolver_prefix WHERE prefix = %s::cidr", [normalized], normalized, "prefix", page, page_size
+        )
 
     @cached()
     def get_asn_anycast(self, asn: str) -> dict:
@@ -844,6 +1022,132 @@ class DNSResilienceService:
     def _pc(self, part: int, whole: int) -> float:
         return round((part / whole) * 100, 2) if whole else 0.0
 
+    def _spoofing_entity_page(self, entity_type: str, page: int, page_size: int) -> dict:
+        if entity_type == "country":
+            entity_key = "country"
+            target_type = "spoofing_countries"
+            grouped_sql = f"""
+                affected_resolver AS MATERIALIZED (
+                    SELECT DISTINCT r.resolver_id
+                    FROM resolver r
+                    WHERE EXISTS (
+                        SELECT 1 FROM spoofing s
+                        WHERE r.ip <<= s.prefix AND {self._SPOOFING_ALLOW_SQL}
+                    )
+                ),
+                grouped_entity AS (
+                    SELECT
+                        rl.country,
+                        COUNT(DISTINCT ar.resolver_id)::INTEGER AS resolver_count,
+                        COUNT(DISTINCT rp.prefix)::INTEGER AS prefix_count
+                    FROM affected_resolver ar
+                    JOIN resolver_location rl ON rl.resolver_id = ar.resolver_id
+                    LEFT JOIN resolver_prefix rp ON rp.resolver_id = ar.resolver_id
+                    GROUP BY rl.country
+                )
+            """
+        else:
+            entity_key = "asn"
+            target_type = "spoofing_asns"
+            grouped_sql = f"""
+                qualifying_asn AS MATERIALIZED (
+                    SELECT DISTINCT sa.asn
+                    FROM spoofing_asn sa
+                    JOIN spoofing s ON s.prefix = sa.prefix
+                    WHERE {self._SPOOFING_ALLOW_SQL}
+                ),
+                grouped_entity AS (
+                    SELECT
+                        ra.asn,
+                        COUNT(ra.resolver_id)::INTEGER AS resolver_count,
+                        COUNT(DISTINCT rp.prefix)::INTEGER AS prefix_count
+                    FROM qualifying_asn qa
+                    JOIN resolver_asn ra ON ra.asn = qa.asn
+                    LEFT JOIN resolver_prefix rp ON rp.resolver_id = ra.resolver_id
+                    GROUP BY ra.asn
+                )
+            """
+        rows = self._fetchall(
+            f"""
+            WITH {grouped_sql},
+            paged_entity AS (
+                SELECT *
+                FROM grouped_entity
+                ORDER BY resolver_count DESC, {entity_key}
+                LIMIT %s OFFSET %s
+            ),
+            totals AS (
+                SELECT
+                    COUNT(*)::INTEGER AS total_entities,
+                    COALESCE(SUM(resolver_count), 0)::BIGINT AS matched_resolver_count
+                FROM grouped_entity
+            )
+            SELECT
+                p.{entity_key}, p.resolver_count, p.prefix_count,
+                t.total_entities, t.matched_resolver_count
+            FROM totals t
+            LEFT JOIN paged_entity p ON TRUE
+            ORDER BY p.resolver_count DESC, p.{entity_key}
+            """,
+            [page_size, (page - 1) * page_size],
+        )
+        total_entities = rows[0].get("total_entities", 0) if rows else 0
+        matched_resolver_count = rows[0].get("matched_resolver_count", 0) if rows else 0
+        entities = [
+            {key: value for key, value in row.items() if key not in {"total_entities", "matched_resolver_count"}}
+            for row in rows
+            if row.get(entity_key) is not None
+        ]
+        return {
+            "target_type": target_type,
+            "page": page,
+            "page_size": page_size,
+            "total_entities": total_entities or 0,
+            "matched_resolver_count": matched_resolver_count or 0,
+            "entities": entities,
+        }
+
+    @cached()
+    def get_spoofing_countries(self, page: int = 1, page_size: int = 25) -> dict:
+        return self._spoofing_entity_page("country", page, page_size)
+
+    @cached()
+    def get_spoofing_asns(self, page: int = 1, page_size: int = 25) -> dict:
+        return self._spoofing_entity_page("asn", page, page_size)
+
+    @cached()
+    def get_country_spoofing_prefixes(self, country: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_country_code(country)
+        return self._prefix_page(
+            scope_sql=f"""
+                SELECT DISTINCT r.resolver_id
+                FROM resolver r
+                JOIN resolver_location rl ON rl.resolver_id = r.resolver_id
+                WHERE rl.country = %s
+                  AND EXISTS (
+                      SELECT 1 FROM spoofing s
+                      WHERE r.ip <<= s.prefix AND {self._SPOOFING_ALLOW_SQL}
+                  )
+            """,
+            params=[normalized], target=normalized, target_type="spoofing_country",
+            page=page, page_size=page_size,
+        )
+
+    @cached()
+    def get_asn_spoofing_prefixes(self, asn: str, page: int = 1, page_size: int = 25) -> dict:
+        normalized = self.validate_asn(asn)
+        return self._prefix_page(
+            scope_sql=f"""
+                SELECT DISTINCT ra.resolver_id
+                FROM resolver_asn ra
+                JOIN spoofing_asn sa ON sa.asn = ra.asn
+                JOIN spoofing s ON s.prefix = sa.prefix
+                WHERE ra.asn = %s AND {self._SPOOFING_ALLOW_SQL}
+            """,
+            params=[normalized], target=f"AS{normalized}", target_type="spoofing_asn",
+            page=page, page_size=page_size,
+        )
+
     def _scoped_summary(
         self,
         *,
@@ -1047,22 +1351,32 @@ class DNSResilienceService:
         ) or {}
         qmin_max_minimise = self._fetchall(
             """
-            SELECT max_minimise_count AS value, COUNT(*)::INTEGER AS count
-            FROM qmin_resolver
-            WHERE max_minimise_count IS NOT NULL
-            GROUP BY max_minimise_count
-            ORDER BY count DESC, max_minimise_count
-            LIMIT 8
+            WITH distribution AS (
+                SELECT max_minimise_count AS value, COUNT(*)::INTEGER AS count
+                FROM qmin_resolver
+                WHERE max_minimise_count IS NOT NULL
+                GROUP BY max_minimise_count
+            )
+            SELECT value, count,
+                   ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
+            FROM distribution
+            ORDER BY count DESC, value
+            LIMIT 10
             """
         )
         qmin_minimize_one_lab = self._fetchall(
             """
-            SELECT minimize_one_lab AS value, COUNT(*)::INTEGER AS count
-            FROM qmin_resolver
-            WHERE minimize_one_lab IS NOT NULL
-            GROUP BY minimize_one_lab
-            ORDER BY count DESC, minimize_one_lab
-            LIMIT 8
+            WITH distribution AS (
+                SELECT minimize_one_lab AS value, COUNT(*)::INTEGER AS count
+                FROM qmin_resolver
+                WHERE minimize_one_lab IS NOT NULL
+                GROUP BY minimize_one_lab
+            )
+            SELECT value, count,
+                   ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
+            FROM distribution
+            ORDER BY count DESC, value
+            LIMIT 10
             """
         )
         measured = row.get("qmin_measured_count", 0) or 0
@@ -1134,7 +1448,7 @@ class DNSResilienceService:
     def get_global_spoofing_environment_summary(self) -> dict:
         total_row = self._fetchone("SELECT COUNT(*)::INTEGER AS resolver_count FROM resolver") or {}
         row = self._fetchone(
-            """
+            f"""
             SELECT
                 (
                     SELECT COUNT(*)::INTEGER
@@ -1143,7 +1457,7 @@ class DNSResilienceService:
                         SELECT 1
                         FROM spoofing s
                         WHERE r.ip <<= s.prefix
-                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                          AND {self._SPOOFING_ALLOW_SQL}
                     )
                 ) AS resolver_spoofing_allow_count,
                 (
@@ -1153,7 +1467,11 @@ class DNSResilienceService:
                         SELECT 1
                         FROM spoofing s
                         WHERE r.ip <<= s.prefix
-                          AND LOWER(COALESCE(s.routedspoof, '')) = 'blocked'
+                          AND NOT {self._SPOOFING_ALLOW_SQL}
+                          AND (
+                              LOWER(COALESCE(s.privatespoof, '')) = 'blocked'
+                              OR LOWER(COALESCE(s.routedspoof, '')) = 'blocked'
+                          )
                     )
                 ) AS resolver_spoofing_blocked_count,
                 (
@@ -1164,7 +1482,7 @@ class DNSResilienceService:
                         FROM spoofing_asn sa
                         JOIN spoofing s ON s.prefix = sa.prefix
                         WHERE sa.asn = ra.asn
-                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                          AND {self._SPOOFING_ALLOW_SQL}
                     )
                 ) AS resolver_spoofing_allow_asn_resolver_count,
                 (
@@ -1175,7 +1493,7 @@ class DNSResilienceService:
                         FROM spoofing_asn sa
                         JOIN spoofing s ON s.prefix = sa.prefix
                         WHERE sa.asn = ra.asn
-                          AND LOWER(COALESCE(s.routedspoof, '')) = 'received'
+                          AND {self._SPOOFING_ALLOW_SQL}
                     )
                 ) AS spoofing_allow_asn_match_count
             """

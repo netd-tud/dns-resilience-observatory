@@ -364,6 +364,14 @@ STATEMENTS = [
         ON resolver_verification (verifying_source);
     """,
     """
+    CREATE INDEX IF NOT EXISTS qmin_resolver_qmin_idx
+        ON qmin_resolver (qmin);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS qmin_resolver_max_minimise_count_idx
+        ON qmin_resolver (max_minimise_count);
+    """,
+    """
     CREATE INDEX IF NOT EXISTS forwarder_forwarder_id_idx
         ON forwarder (forwarder_id);
     """,
@@ -422,6 +430,10 @@ STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS spoofing_asn_asn_idx
         ON spoofing_asn (asn);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS spoofing_prefix_gist_idx
+        ON spoofing USING gist (prefix inet_ops);
     """,
     """
     CREATE INDEX IF NOT EXISTS spoofing_country_country_idx
