@@ -27,6 +27,7 @@ app.conf.update(
 
 for module_path in [
     "measurements.tasks.verify_resolvers.verify_resolvers",
+    "measurements.tasks.dnssec_validation.dnssec_validation",
     "measurements.tasks.metainformation_resolvers.metainformation_resolvers",
 ]:
     import_module(module_path)

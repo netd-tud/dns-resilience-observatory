@@ -1,0 +1,17 @@
+[dnssec_validation]
+domain = dnssec-failed.org
+source = measurements.zdns.dnssec
+zdns_path = measurements/tools/zdns/zdns
+output_dir = data/measurements/dnssec_validation
+input_file = resolvers.txt
+output_file = dnssec_validation.csv
+threads = 100
+network_timeout = 8
+retries = 1
+no_recycle_sockets = true
+limit =
+verified =
+is_public =
+resolver_source =
+country =
+asn =

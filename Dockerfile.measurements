@@ -2,12 +2,14 @@ FROM golang:1.25 AS zdns-builder
 
 WORKDIR /src/zdns
 COPY measurements/tools/zdns /src/zdns
+COPY measurements/patches/zdns-target-nameserver.patch /tmp/zdns-target-nameserver.patch
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends make \
+    && apt-get install -y --no-install-recommends make patch \
     && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    make \
+    patch -p1 < /tmp/zdns-target-nameserver.patch \
+    && make \
     && mkdir -p /out \
     && cp zdns /out/zdns
 

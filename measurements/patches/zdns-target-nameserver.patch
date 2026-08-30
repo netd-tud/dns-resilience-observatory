@@ -1,0 +1,15 @@
+diff --git a/src/cli/worker_manager.go b/src/cli/worker_manager.go
+--- a/src/cli/worker_manager.go
++++ b/src/cli/worker_manager.go
+@@ -757,6 +757,11 @@ func handleWorkerInput(ctx context.Context, gc *CLIConf, rc *zdns.ResolverConfig
+ 			}
+ 		}
+ 	}
++	if nameServer != nil {
++		// Preserve the requested target even when a lookup fails before the
++		// module can populate SingleQueryResult.Resolver.
++		res.Nameserver = nameServer.String()
++	}
+ 	res.Name = rawName
+ 	// handle per-module lookups
+ 	for moduleName, module := range gc.ActiveModules {

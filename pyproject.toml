@@ -16,5 +16,6 @@ include = [
     "data_gathering*",
     "dns_resilience_observatory*",
     "frontend*",
+    "measurements*",
     "resilience*",
 ]
