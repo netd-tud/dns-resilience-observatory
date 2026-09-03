@@ -58,7 +58,7 @@ def query_resolvers(
 
     sql = f"""
         SELECT
-            r.ip::TEXT AS resolver_ip,
+            host(r.ip) AS resolver_ip,
             r.resolver_id,
             ri.verified,
             r.is_public,
