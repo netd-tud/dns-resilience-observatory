@@ -33,6 +33,7 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | `data_gathering/tasks/rpki/rpki.conf` | RIPEstat RPKI URL, request limits, retries, workers, and upsert batch size. |
 | `data_gathering/tasks/webpage_resolver/webpage_resolver.conf` | Web resolver URL import definitions and column mappings. |
 | `measurements/tasks/verify_resolvers/verify_resolvers.conf` | Active resolver verification measurement using ZDNS. |
+| `measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf` | Active IPv6 resolver verification using a ZDNS AAAA query over IPv6. |
 | `measurements/tasks/dnssec_validation/dnssec_validation.conf` | Active per-resolver DNSSEC validation measurement using ZDNS. |
 | `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf` | Resolver metainformation measurement using ZDNS PTR, SVCB, A, AAAA, and HTTPS lookups. |
 | `db/data-sources.conf` | Source metadata inserted into the `data_source` table. |
@@ -45,6 +46,7 @@ cp data_gathering/tasks/manrs/manrs.conf.example data_gathering/tasks/manrs/manr
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
 cp data_gathering/tasks/rpki/rpki.conf.example data_gathering/tasks/rpki/rpki.conf
 cp measurements/tasks/verify_resolvers/verify_resolvers.conf.example measurements/tasks/verify_resolvers/verify_resolvers.conf
+cp measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf.example measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf
 cp measurements/tasks/dnssec_validation/dnssec_validation.conf.example measurements/tasks/dnssec_validation/dnssec_validation.conf
 cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.example measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf
 ```
@@ -56,6 +58,7 @@ Replace these placeholders for setup:
 - `data_gathering/tasks/manrs/manrs.conf`: replace `<MANRS_API_KEY>` with the MANRS Observatory API key, then adjust the API URL, request rate, concurrency, retry, timeout, and batch settings when needed. This runtime file is ignored by Git and mounted read-only into the data-gathering containers.
 - `data_gathering/tasks/rpki/rpki.conf`: adjust the public API URL, request rate, concurrency, retry, timeout, and batch settings when needed.
 - `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
+- `measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf`: selects IPv6 resolver addresses and queries the configured domain's AAAA record using IPv6 transport; the default query name is `rr-mirror.research6.nawrocki.berlin`.
 - `measurements/tasks/dnssec_validation/dnssec_validation.conf`: adjust ZDNS execution settings and resolver filters; keep `domain = dnssec-failed.org` for the validation heuristic.
 - `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf`: adjust `modules` (`svcb`, `svcb,ptr,a`, or `svcb,ptr,a,aaaa,https`), `threads`, resolver filters, and `recursive_name_servers` if needed.
 - Task `.conf` files: adjust `data_dir`, worker counts, fetch windows, URLs, and source mappings only if your deployment differs from the defaults.
@@ -215,6 +218,17 @@ docker compose up -d --build measurements
 docker compose exec measurements \
 	celery -A measurements.celery_app call measurements.tasks.verify_resolvers.run --queue measurements
 ```
+
+The IPv6 verification task selects only IPv6 resolver addresses, forces IPv6 query transport, and
+runs a ZDNS `AAAA` lookup for `rr-mirror.research6.nawrocki.berlin` by default:
+
+```bash
+docker compose exec measurements \
+	celery -A measurements.celery_app call measurements.tasks.verify_ipv6_resolvers.run --queue measurements
+```
+
+The generated input and raw JSONL result are written below
+`data/measurements/verify_ipv6_resolvers/`.
 
 Per-resolver DNSSEC validation queries `dnssec-failed.org`. SERVFAIL is recorded as validating,
 another DNS response as non-validating, and missing or invalid responses as unknown. The task writes

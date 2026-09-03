@@ -27,6 +27,7 @@ app.conf.update(
 
 for module_path in [
     "measurements.tasks.verify_resolvers.verify_resolvers",
+    "measurements.tasks.verify_ipv6_resolvers.verify_ipv6_resolvers",
     "measurements.tasks.dnssec_validation.dnssec_validation",
     "measurements.tasks.metainformation_resolvers.metainformation_resolvers",
 ]:

@@ -27,6 +27,7 @@ def query_resolvers(
     *,
     verified: bool | None = None,
     is_public: bool | None = None,
+    ip_version: int | None = None,
     source: str | None = None,
     country: str | None = None,
     asn: int | None = None,
@@ -35,12 +36,18 @@ def query_resolvers(
     where = []
     params: list[Any] = []
 
+    if ip_version not in {None, 4, 6}:
+        raise ValueError("ip_version must be 4, 6, or None")
+
     if verified is not None:
         where.append("ri.verified = %s")
         params.append(verified)
     if is_public is not None:
         where.append("r.is_public = %s")
         params.append(is_public)
+    if ip_version is not None:
+        where.append("family(r.ip) = %s")
+        params.append(ip_version)
     if source:
         where.append("r.source = %s")
         params.append(source)
@@ -77,9 +84,10 @@ def query_resolvers(
     from measurements.db import connect
 
     logger.info(
-        "Loading resolvers from database with filters verified={verified}, is_public={is_public}, source={source}, country={country}, asn={asn}, limit={limit}",
+        "Loading resolvers from database with filters verified={verified}, is_public={is_public}, ip_version={ip_version}, source={source}, country={country}, asn={asn}, limit={limit}",
         verified=verified,
         is_public=is_public,
+        ip_version=ip_version if ip_version is not None else "*",
         source=source or "*",
         country=country or "*",
         asn=asn if asn is not None else "*",
@@ -124,6 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export resolvers from the database.")
     parser.add_argument("--verified", type=_parse_bool, default=None, help="Filter resolver_id.verified")
     parser.add_argument("--is-public", type=_parse_bool, default=None, help="Filter resolver.is_public")
+    parser.add_argument("--ip-version", type=int, choices=(4, 6), help="Filter resolver IP family")
     parser.add_argument("--source", help="Filter resolver.source")
     parser.add_argument("--country", help="Filter resolver_location.country")
     parser.add_argument("--asn", type=int, help="Filter resolver_asn.asn")
@@ -138,6 +147,7 @@ def main() -> None:
     rows = query_resolvers(
         verified=args.verified,
         is_public=args.is_public,
+        ip_version=args.ip_version,
         source=args.source,
         country=args.country,
         asn=args.asn,
