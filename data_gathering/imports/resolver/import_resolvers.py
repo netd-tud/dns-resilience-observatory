@@ -41,6 +41,7 @@ SUPPORTED_COLUMNS = set().union(*MODULE_REQUIRED_COLUMNS.values()) | {
     "last_update_ts",
     "port",
     "source",
+    "supported",
     "verified",
 }
 ATTRIBUTE_MODULES = ("asn", "prefix", "location", "protocol", "dohpath", "org", "domain")
@@ -266,6 +267,9 @@ def load_rows(
             "verified": normalize_bool(record.get(mapping["verified"]), default=False)
             if "verified" in mapping
             else verified,
+            "supported": normalize_bool(record.get(mapping["supported"]), default=True)
+            if "supported" in mapping
+            else True,
         }
         row["source"] = row["source"] or source or path.name
 
@@ -299,6 +303,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
             city TEXT,
             protocol TEXT,
             port INTEGER,
+            supported BOOLEAN NOT NULL,
             dohpath TEXT,
             org TEXT,
             domain TEXT
@@ -309,7 +314,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         """
         COPY resolver_import_stage (
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, port, dohpath, org, domain
+            city, protocol, port, supported, dohpath, org, domain
         ) FROM STDIN
         """
     ) as copy:
@@ -327,6 +332,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
                     row["city"],
                     row["protocol"],
                     row["port"],
+                    row["supported"],
                     row["dohpath"],
                     row["org"],
                     row["domain"],
@@ -338,7 +344,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         CREATE TEMP TABLE resolver_import_unique AS
         SELECT DISTINCT ON (ip)
             ip, is_public, source, last_update_ts, verified, asn, prefix, country,
-            city, protocol, port, dohpath, org, domain
+            city, protocol, port, supported, dohpath, org, domain
         FROM resolver_import_stage
         ORDER BY ip, last_update_ts DESC NULLS LAST, source
         """
@@ -696,6 +702,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
             resolver_id,
             protocol,
             port,
+            supported,
             last_update_ts
         FROM (
             SELECT
@@ -713,6 +720,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
                     ELSE LOWER(TRIM(protocol_part))
                 END AS protocol,
                 port,
+                supported,
                 last_update_ts
             FROM resolver_import_all
             CROSS JOIN LATERAL regexp_split_to_table(protocol, ',') AS protocol_part
@@ -721,7 +729,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         ) split_protocols
         WHERE protocol <> ''
           AND port BETWEEN 1 AND 65535
-        ORDER BY resolver_id, protocol, port, last_update_ts DESC NULLS LAST
+        ORDER BY resolver_id, protocol, port, last_update_ts DESC NULLS LAST, supported DESC
         """
     )
     cursor.execute("SELECT COUNT(*) FROM resolver_service_stage")
@@ -749,6 +757,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
          AND t.protocol = s.protocol
          AND t.port = s.port
         WHERE %s
+           OR t.supported IS DISTINCT FROM s.supported
            OR (
                s.last_update_ts IS NOT NULL
                AND s.last_update_ts > t.last_update_ts
@@ -761,11 +770,12 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
     if not dry_run:
         cursor.execute(
             """
-            INSERT INTO resolver_service (resolver_id, protocol, port, last_update_ts)
+            INSERT INTO resolver_service (resolver_id, protocol, port, supported, last_update_ts)
             SELECT
                 s.resolver_id,
                 s.protocol,
                 s.port,
+                s.supported,
                 COALESCE(s.last_update_ts, NOW())
             FROM resolver_service_stage s
             LEFT JOIN resolver_service t
@@ -778,20 +788,27 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         cursor.execute(
             """
             UPDATE resolver_service t
-            SET last_update_ts = COALESCE(s.last_update_ts, NOW())
+            SET supported = s.supported,
+                last_update_ts = CASE
+                    WHEN %s THEN COALESCE(s.last_update_ts, NOW())
+                    WHEN s.last_update_ts IS NOT NULL AND s.last_update_ts > t.last_update_ts THEN s.last_update_ts
+                    WHEN t.supported IS DISTINCT FROM s.supported THEN COALESCE(s.last_update_ts, NOW())
+                    ELSE t.last_update_ts
+                END
             FROM resolver_service_stage s
             WHERE t.resolver_id = s.resolver_id
               AND t.protocol = s.protocol
               AND t.port = s.port
               AND (
                   %s
+                  OR t.supported IS DISTINCT FROM s.supported
                   OR (
                       s.last_update_ts IS NOT NULL
                       AND s.last_update_ts > t.last_update_ts
                   )
               )
             """,
-            (force,),
+            (force, force),
         )
 
     return {
@@ -1127,6 +1144,7 @@ def _svcb_service_rows(frame, import_ts: datetime) -> list[dict[str, object]]:
                     "resolver_ip": ip,
                     "protocol": _map_alpn_protocol(protocol),
                     "port": port,
+                    "supported": True,
                     "last_update_ts": import_ts,
                 }
             )
@@ -1160,6 +1178,7 @@ def import_resolver_services_frame(
                 ("resolver_ip", "INET"),
                 ("protocol", "TEXT"),
                 ("port", "INTEGER"),
+                ("supported", "BOOLEAN"),
                 ("last_update_ts", "TIMESTAMPTZ"),
             ],
         )
@@ -1167,15 +1186,15 @@ def import_resolver_services_frame(
             cursor,
             "resolver_service_metainfo_stage",
             "resolver_service_metainfo_resolved",
-            "s.protocol, s.port, s.last_update_ts",
+            "s.protocol, s.port, s.supported, s.last_update_ts",
         )
         cursor.execute(
             """
             CREATE TEMP TABLE resolver_service_metainfo_unique AS
             SELECT DISTINCT ON (resolver_id, protocol, port)
-                resolver_id, protocol, port, last_update_ts
+                resolver_id, protocol, port, supported, last_update_ts
             FROM resolver_service_metainfo_resolved
-            ORDER BY resolver_id, protocol, port, last_update_ts DESC
+            ORDER BY resolver_id, protocol, port, last_update_ts DESC, supported DESC
             """
         )
         cursor.execute("SELECT COUNT(*) FROM resolver_service_metainfo_stage")
@@ -1208,6 +1227,7 @@ def import_resolver_services_frame(
              AND t.protocol = s.protocol
              AND t.port = s.port
             WHERE s.last_update_ts > t.last_update_ts
+               OR t.supported IS DISTINCT FROM s.supported
             """
         )
         updated = cursor.fetchone()[0]
@@ -1215,8 +1235,8 @@ def import_resolver_services_frame(
         if not dry_run:
             cursor.execute(
                 """
-                INSERT INTO resolver_service (resolver_id, protocol, port, last_update_ts)
-                SELECT s.resolver_id, s.protocol, s.port, s.last_update_ts
+                INSERT INTO resolver_service (resolver_id, protocol, port, supported, last_update_ts)
+                SELECT s.resolver_id, s.protocol, s.port, s.supported, s.last_update_ts
                 FROM resolver_service_metainfo_unique s
                 LEFT JOIN resolver_service t
                   ON t.resolver_id = s.resolver_id
@@ -1228,12 +1248,20 @@ def import_resolver_services_frame(
             cursor.execute(
                 """
                 UPDATE resolver_service t
-                SET last_update_ts = s.last_update_ts
+                SET supported = s.supported,
+                    last_update_ts = CASE
+                        WHEN s.last_update_ts > t.last_update_ts THEN s.last_update_ts
+                        WHEN t.supported IS DISTINCT FROM s.supported THEN s.last_update_ts
+                        ELSE t.last_update_ts
+                    END
                 FROM resolver_service_metainfo_unique s
                 WHERE t.resolver_id = s.resolver_id
                   AND t.protocol = s.protocol
                   AND t.port = s.port
-                  AND s.last_update_ts > t.last_update_ts
+                  AND (
+                      s.last_update_ts > t.last_update_ts
+                      OR t.supported IS DISTINCT FROM s.supported
+                  )
                 """
             )
             connection.commit()
@@ -1578,7 +1606,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-m",
         action="append",
         required=True,
-        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated. Optional protocol service column: port.",
+        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated. Optional protocol service columns: port and supported.",
     )
     parser.add_argument(
         "--modules",

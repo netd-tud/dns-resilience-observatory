@@ -1,0 +1,1 @@
+"""MANRS Observatory external source."""

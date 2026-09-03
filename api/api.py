@@ -82,6 +82,47 @@ def get_resolver_spoofing(request, resolver_ip: str):
 
 
 @api.get(
+    "/dns-resilience/resolver/{resolver_ip}/manrs",
+    summary="Get MANRS readiness inherited from a resolver IP's ASN",
+)
+def get_resolver_manrs(request, resolver_ip: str):
+    logger.info("MANRS readiness request for resolver IP: %s", resolver_ip)
+    return dns_resilience_service.get_resolver_manrs(resolver_ip)
+
+
+@api.get(
+    "/dns-resilience/resolver/{resolver_ip}/forwarders",
+    summary="List forwarders that have a recursive DNS resolver configured as upstream",
+)
+def get_resolver_upstream_forwarders(
+    request,
+    resolver_ip: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=250),
+):
+    logger.info(
+        "Upstream forwarder list request: resolver_ip=%s page=%s page_size=%s",
+        resolver_ip,
+        page,
+        page_size,
+    )
+    return dns_resilience_service.get_upstream_forwarder_lists_by_ip(
+        resolver_ip,
+        page,
+        page_size,
+    )
+
+
+@api.get(
+    "/dns-resilience/compare/{entity_type}/{target}",
+    summary="Get normalized comparison metrics for a country, ASN, or resolver IP",
+)
+def get_comparison_metrics(request, entity_type: str, target: str):
+    logger.info("Comparison metric request: entity_type=%s target=%s", entity_type, target)
+    return dns_resilience_service.get_comparison_metrics(entity_type, target)
+
+
+@api.get(
     "/dns-resilience/prefix/{network_prefix}",
     response=DNSResilienceResponse,
     summary="Get DNS resilience data for a network prefix",
@@ -193,6 +234,15 @@ def get_asn_spoofing(request, asn: str):
 
 
 @api.get(
+    "/dns-resilience/ASN/{asn}/manrs",
+    summary="Get MANRS readiness for an ASN",
+)
+def get_asn_manrs(request, asn: str):
+    logger.info("MANRS readiness request for ASN: %s", asn)
+    return dns_resilience_service.get_asn_manrs(asn)
+
+
+@api.get(
     "/dns-resilience/ASN/{asn}/spoofing/resolver-prefixes",
     response=ResolverPrefixPage,
     summary="Get resolver BGP prefixes for an ASN allowing spoofing",
@@ -218,6 +268,45 @@ def get_dns_resilience_by_country(request, country: str, limit: int = Query(100,
         total=len(resolvers),
         resolvers=resolvers,
         **counts,
+    )
+
+
+@api.get(
+    "/dns-resilience/scope/{scope}",
+    response=DNSResilienceResponse,
+    summary="Find open or closed recursive DNS resolvers",
+)
+def get_dns_resilience_by_scope(request, scope: str, limit: int = Query(100, ge=1, le=1000)):
+    logger.info("DNS resilience request for resolver scope: %s", scope)
+    normalized, resolvers = dns_resilience_service.get_resolvers_by_scope(scope, limit=limit)
+    return DNSResilienceResponse(
+        target=f"resolver:{normalized}",
+        target_type="scope",
+        total=len(resolvers),
+        resolvers=resolvers,
+    )
+
+
+@api.get(
+    "/dns-resilience/organization",
+    response=DNSResilienceResponse,
+    summary="Find recursive DNS resolvers by organization name",
+)
+def get_dns_resilience_by_organization(
+    request,
+    organization: str = Query(...),
+    limit: int = Query(100, ge=1, le=1000),
+):
+    logger.info("DNS resilience request for organization: %s", organization)
+    normalized, resolvers = dns_resilience_service.get_resolvers_by_organization(
+        organization,
+        limit=limit,
+    )
+    return DNSResilienceResponse(
+        target=normalized,
+        target_type="organization",
+        total=len(resolvers),
+        resolvers=resolvers,
     )
 
 
@@ -293,6 +382,22 @@ def get_dns_resilience_by_protocol(request, service: str, limit: int = Query(100
 
 
 @api.get(
+    "/dns-resilience/port/{port}",
+    response=DNSResilienceResponse,
+    summary="Get DNS resilience data for recursive DNS resolvers using a port",
+)
+def get_dns_resilience_by_port(request, port: int, limit: int = Query(100, ge=1, le=1000)):
+    logger.info("DNS resilience request for resolver port: %s", port)
+    normalized_port, resolvers = dns_resilience_service.get_resolvers_by_port(port, limit=limit)
+    return DNSResilienceResponse(
+        target=f"port:{normalized_port}",
+        target_type="port",
+        total=len(resolvers),
+        resolvers=resolvers,
+    )
+
+
+@api.get(
     "/dns-resilience/country/{country}/qmin",
     summary="Get QMIN aggregate data for a country",
 )
@@ -351,6 +456,15 @@ def get_country_spoofing(request, country: str):
 
 
 @api.get(
+    "/dns-resilience/country/{country}/manrs",
+    summary="Get MANRS readiness for a country",
+)
+def get_country_manrs(request, country: str):
+    logger.info("MANRS readiness request for country: %s", country)
+    return dns_resilience_service.get_country_manrs(country)
+
+
+@api.get(
     "/dns-resilience/country/{country}/spoofing/resolver-prefixes",
     response=ResolverPrefixPage,
     summary="Get resolver BGP prefixes for spoofing environments in a country",
@@ -392,6 +506,73 @@ def get_global_dual_stack(request):
 def get_global_scope(request):
     logger.info("Global observatory scope summary request")
     return dns_resilience_service.get_global_scope_summary()
+
+
+@api.get(
+    "/dns-resilience/global/data-sources",
+    summary="Get public data-source links, GitHub repositories, and resolver source distribution",
+)
+def get_global_data_sources(request):
+    logger.info("Global resolver data-source summary request")
+    return dns_resilience_service.get_global_data_source_summary()
+
+
+@api.get(
+    "/dns-resilience/global/practice-summary",
+    summary="Get measurable-practice percentages for open and closed recursive DNS resolvers",
+)
+def get_global_resolver_practice_summary(request):
+    logger.info("Global open and closed resolver practice summary request")
+    return dns_resilience_service.get_global_resolver_practice_summary()
+
+
+@api.get(
+    "/dns-resilience/global/practice-summary/{scope}/{metric}",
+    summary="Get one measurable-practice value for open or closed recursive DNS resolvers",
+)
+def get_global_resolver_practice_metric(request, scope: str, metric: str):
+    logger.info("Global resolver practice metric request: scope=%s metric=%s", scope, metric)
+    return dns_resilience_service.get_global_resolver_practice_metric(scope, metric)
+
+
+@api.get(
+    "/dns-resilience/global/practice-details/dnssec/{scope}",
+    summary="Get DNSSEC validation detail for open resolvers, closed resolvers, or countries",
+)
+def get_global_dnssec_practice_detail(request, scope: str):
+    logger.info("Global DNSSEC practice detail request: scope=%s", scope)
+    return dns_resilience_service.get_global_dnssec_practice_detail(scope)
+
+
+@api.get(
+    "/dns-resilience/global/practice-details/qmin/{scope}",
+    summary="Get QMIN implementation detail for open or closed recursive DNS resolvers",
+)
+def get_global_qmin_practice_detail(request, scope: str):
+    logger.info("Global QMIN practice detail request: scope=%s", scope)
+    return dns_resilience_service.get_global_qmin_practice_detail(scope)
+
+
+@api.get(
+    "/dns-resilience/global/practice-details/manrs/{entity_type}/{scope}",
+    summary="Get average MANRS readiness for resolver-linked ASNs or countries",
+)
+def get_global_manrs_practice_detail(request, entity_type: str, scope: str):
+    logger.info(
+        "Global MANRS practice detail request: entity_type=%s scope=%s",
+        entity_type,
+        scope,
+    )
+    return dns_resilience_service.get_global_manrs_practice_detail(entity_type, scope)
+
+
+@api.get(
+    "/dns-resilience/global/practice-details/bcp38/{scope}",
+    summary="Get BCP38 evidence for open or closed recursive DNS resolvers",
+)
+def get_global_bcp38_practice_detail(request, scope: str):
+    logger.info("Global BCP38 practice detail request: scope=%s", scope)
+    return dns_resilience_service.get_global_bcp38_practice_detail(scope)
 
 
 @api.get("/dns-resilience/global/anycast", summary="Get global resolver anycast summary")

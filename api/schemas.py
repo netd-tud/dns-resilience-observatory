@@ -21,7 +21,7 @@ class ResolverRecord(Schema):
 
 class DNSResilienceResponse(Schema):
     target: str = Field(..., description="The queried target")
-    target_type: str = Field(..., description="Type of target (resolver, prefix, asn, country, domain, protocol)")
+    target_type: str = Field(..., description="Type of target (resolver, prefix, asn, country, organization, domain, protocol, port)")
     total: int = Field(..., description="Total number of resolvers found")
     resolvers: List[ResolverRecord] = Field(default_factory=list)
     public_resolver_count: Optional[int] = Field(None, description="Public resolvers in country")
@@ -75,6 +75,13 @@ class SpoofingPrefixSummary(Schema):
     routedspoof: Optional[str] = Field(None, description="Routed spoofing result")
 
 
+class ResolverProtocolResult(Schema):
+    protocol: str = Field(..., description="Tested resolver protocol")
+    port: int = Field(..., description="Tested resolver service port")
+    supported: bool = Field(..., description="Whether the protocol test succeeded")
+    last_update_ts: datetime = Field(..., description="Latest protocol test result timestamp")
+
+
 class ResolverPrefixSummary(Schema):
     prefix: str = Field(..., description="BGP prefix from resolver_prefix")
     resolver_count: int = Field(..., description="Matching resolvers mapped to the BGP prefix")
@@ -125,6 +132,10 @@ class ResolverAnycastSummaryResponse(Schema):
     resolver_is_public: Optional[bool] = Field(None, description="Public resolver flag")
     resolver_supported_protocols: Optional[str] = Field(None, description="Supported protocols for the resolver")
     resolver_services: List[str] = Field(default_factory=list, description="Supported resolver services as protocol:port entries")
+    resolver_protocol_results: List[ResolverProtocolResult] = Field(
+        default_factory=list,
+        description="Tested resolver services including supported and failed results",
+    )
     resolver_supports_tcp: bool = Field(..., description="Resolver supports TCP")
     resolver_supports_udp: bool = Field(..., description="Resolver supports UDP")
     resolver_supports_ipv4: bool = Field(..., description="Resolver has an IPv4 address")

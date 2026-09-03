@@ -39,6 +39,7 @@ SUPPORTED_COLUMNS = set().union(*MODULE_REQUIRED_COLUMNS.values()) | {
     "is_public",
     "last_update_ts",
     "source",
+    "supported",
     "type",
 }
 ATTRIBUTE_MODULES = ("asn", "prefix", "location", "protocol", "endpoint", "org", "domain", "upstream")
@@ -208,6 +209,9 @@ def load_rows(path: Path, mapping: dict[str, str], modules: list[str]):
             else import_ts,
             "type": normalize_forwarder_type(record.get(mapping["type"])) if "type" in mapping else "recursive",
             "upstream_ip": normalize_ip(record.get(mapping["upstream_ip"])) if "upstream_ip" in mapping else None,
+            "supported": normalize_bool(record.get(mapping["supported"]), default=True)
+            if "supported" in mapping
+            else True,
         }
         row["source"] = row["source"] or path.name
         row["asn"] = normalize_asn(record.get(mapping["asn"])) if "asn" in mapping else None
@@ -238,6 +242,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
             country TEXT,
             city TEXT,
             protocol TEXT,
+            supported BOOLEAN NOT NULL,
             endpoint TEXT,
             org TEXT,
             domain TEXT,
@@ -249,7 +254,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         """
         COPY forwarder_import_stage (
             ip, is_public, source, last_update_ts, asn, prefix, country,
-            city, protocol, endpoint, org, domain, upstream_ip, type
+            city, protocol, supported, endpoint, org, domain, upstream_ip, type
         ) FROM STDIN
         """
     ) as copy:
@@ -265,6 +270,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
                     row["country"],
                     row["city"],
                     row["protocol"],
+                    row["supported"],
                     row["endpoint"],
                     row["org"],
                     row["domain"],
@@ -278,7 +284,7 @@ def create_base_stage(cursor, rows: list[dict[str, object]]) -> None:
         CREATE TEMP TABLE forwarder_import_unique AS
         SELECT DISTINCT ON (ip)
             ip, is_public, source, last_update_ts, asn, prefix, country,
-            city, protocol, endpoint, org, domain, upstream_ip, type
+            city, protocol, supported, endpoint, org, domain, upstream_ip, type
         FROM forwarder_import_stage
         ORDER BY ip, last_update_ts DESC NULLS LAST, source
         """
@@ -575,11 +581,13 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         SELECT DISTINCT ON (forwarder_id, protocol)
             forwarder_id,
             protocol,
+            supported,
             last_update_ts
         FROM (
             SELECT
                 forwarder_id,
                 LOWER(TRIM(protocol_part)) AS protocol,
+                supported,
                 last_update_ts
             FROM forwarder_import_all
             CROSS JOIN LATERAL regexp_split_to_table(protocol, ',') AS protocol_part
@@ -587,7 +595,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
               AND protocol IS NOT NULL
         ) split_protocols
         WHERE protocol <> ''
-        ORDER BY forwarder_id, protocol, last_update_ts DESC NULLS LAST
+        ORDER BY forwarder_id, protocol, last_update_ts DESC NULLS LAST, supported DESC
         """
     )
     cursor.execute("SELECT COUNT(*) FROM forwarder_protocol_stage")
@@ -611,6 +619,7 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
           ON t.forwarder_id = s.forwarder_id
          AND t.protocol = s.protocol
         WHERE %s
+           OR t.supported IS DISTINCT FROM s.supported
            OR (
                s.last_update_ts IS NOT NULL
                AND s.last_update_ts > t.last_update_ts
@@ -623,8 +632,8 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
     if not dry_run:
         cursor.execute(
             """
-            INSERT INTO forwarder_protocol (forwarder_id, protocol, last_update_ts)
-            SELECT s.forwarder_id, s.protocol, COALESCE(s.last_update_ts, NOW())
+            INSERT INTO forwarder_protocol (forwarder_id, protocol, supported, last_update_ts)
+            SELECT s.forwarder_id, s.protocol, s.supported, COALESCE(s.last_update_ts, NOW())
             FROM forwarder_protocol_stage s
             LEFT JOIN forwarder_protocol t
               ON t.forwarder_id = s.forwarder_id
@@ -635,19 +644,26 @@ def import_protocol_module(cursor, dry_run: bool, force: bool) -> dict[str, int]
         cursor.execute(
             """
             UPDATE forwarder_protocol t
-            SET last_update_ts = COALESCE(s.last_update_ts, NOW())
+            SET supported = s.supported,
+                last_update_ts = CASE
+                    WHEN %s THEN COALESCE(s.last_update_ts, NOW())
+                    WHEN s.last_update_ts IS NOT NULL AND s.last_update_ts > t.last_update_ts THEN s.last_update_ts
+                    WHEN t.supported IS DISTINCT FROM s.supported THEN COALESCE(s.last_update_ts, NOW())
+                    ELSE t.last_update_ts
+                END
             FROM forwarder_protocol_stage s
             WHERE t.forwarder_id = s.forwarder_id
               AND t.protocol = s.protocol
               AND (
                   %s
+                  OR t.supported IS DISTINCT FROM s.supported
                   OR (
                       s.last_update_ts IS NOT NULL
                       AND s.last_update_ts > t.last_update_ts
                   )
               )
             """,
-            (force,),
+            (force, force),
         )
 
     return {
@@ -974,7 +990,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-m",
         action="append",
         required=True,
-        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated.",
+        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated. Optional protocol column: supported.",
     )
     parser.add_argument(
         "--modules",

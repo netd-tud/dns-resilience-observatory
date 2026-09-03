@@ -1,0 +1,15 @@
+[tasks.py]
+logging_tag = rpki_tasks
+
+[update_rpki_table.py]
+logging_tag = update_rpki_table.py
+ripe_stat_rpki_url = https://stat.ripe.net/data/rpki-validation/data.json
+request_timeout_seconds = 30
+request_workers = 8
+requests_per_second = 10
+request_retries = 3
+request_backoff_seconds = 1
+upsert_batch_size = 500
+
+[script_config.py]
+logging_tag = rpki_script_config.py

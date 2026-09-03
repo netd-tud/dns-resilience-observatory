@@ -1,0 +1,16 @@
+[tasks.py]
+logging_tag = manrs_tasks
+
+[update_manrs_tables.py]
+logging_tag = update_manrs_tables.py
+manrs_summary_url = https://observatory.manrs.org/api/v2/scores/summary
+manrs_api_key = <MANRS_API_KEY>
+request_timeout_seconds = 30
+request_workers = 8
+requests_per_second = 10
+request_retries = 3
+request_backoff_seconds = 1
+upsert_batch_size = 500
+
+[script_config.py]
+logging_tag = manrs_script_config.py
