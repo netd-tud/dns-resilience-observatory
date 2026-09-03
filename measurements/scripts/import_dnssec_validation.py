@@ -21,6 +21,7 @@ from measurements.tasks.dnssec_validation.dnssec_validation import (
     _start_run,
     parse_zdns_results,
 )
+from measurements.db import connect
 
 
 def _unique(values: Iterable[str]) -> list[str]:
@@ -61,6 +62,34 @@ def _resolver_ips_from_jsonl(path: Path) -> list[str]:
             if resolver_ip:
                 resolver_ips.append(resolver_ip)
     return _unique(resolver_ips)
+
+
+def _existing_resolver_ips(resolver_ips: list[str]) -> tuple[list[str], int]:
+    """Return input addresses that satisfy the DNSSEC tables' resolver foreign key."""
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TEMP TABLE dnssec_external_target_stage (
+                    ip INET PRIMARY KEY
+                ) ON COMMIT DROP
+                """
+            )
+            with cursor.copy("COPY dnssec_external_target_stage (ip) FROM STDIN") as copy:
+                for resolver_ip in resolver_ips:
+                    copy.write_row((resolver_ip,))
+            cursor.execute(
+                """
+                SELECT stage.ip::TEXT
+                FROM dnssec_external_target_stage stage
+                JOIN resolver ON resolver.ip = stage.ip
+                """
+            )
+            existing = {str(ipaddress.ip_interface(row[0]).ip) for row in cursor.fetchall()}
+
+    filtered = [resolver_ip for resolver_ip in resolver_ips if resolver_ip in existing]
+    return filtered, len(resolver_ips) - len(filtered)
 
 
 def _content_run_key(jsonl_path: Path, resolver_input: Path | None, query_name: str, source: str) -> str:
@@ -108,7 +137,18 @@ def import_dnssec_validation(
             "No resolver input file supplied; resolvers without an attributable JSONL row cannot be recorded as unknown"
         )
 
+    existing_resolver_ips, skipped_missing_resolver_count = _existing_resolver_ips(resolver_ips)
+    if skipped_missing_resolver_count:
+        logger.warning(
+            "Skipping {count} DNSSEC targets that are not present in the resolver table",
+            count=skipped_missing_resolver_count,
+        )
+    if not existing_resolver_ips:
+        raise ValueError("None of the DNSSEC target addresses are present in the resolver table")
+
     observations = parse_zdns_results(jsonl_path, resolver_ips, fallback_timestamp=observed_at)
+    existing_resolver_set = set(existing_resolver_ips)
+    observations = [item for item in observations if item["resolver_ip"] in existing_resolver_set]
     observation_times = [item["observed_at"] for item in observations]
     started_at = min(observation_times, default=observed_at)
     finished_at = max(observation_times, default=observed_at)
@@ -120,11 +160,12 @@ def import_dnssec_validation(
         query_name=query_name,
         output_file=str(jsonl_path),
         source=source,
-        target_count=len(resolver_ips),
+        target_count=len(existing_resolver_ips),
     )
     if reused:
         assert reused_report is not None
         reused_report["run_key"] = effective_run_key
+        reused_report["skipped_missing_resolver_count"] = skipped_missing_resolver_count
         return reused_report
 
     try:
@@ -148,6 +189,7 @@ def import_dnssec_validation(
         "validating_count": validating_count,
         "non_validating_count": non_validating_count,
         "unknown_count": len(observations) - validating_count - non_validating_count,
+        "skipped_missing_resolver_count": skipped_missing_resolver_count,
         "reused_run": False,
     }
 

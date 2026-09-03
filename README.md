@@ -255,6 +255,10 @@ docker compose exec measurements \
 	--resolver-input /app/data/resolvers.txt
 ```
 
+The external importer bulk-checks targets against the `resolver` table before inserting DNSSEC
+observations. Addresses not present in `resolver` are skipped and reported as
+`skipped_missing_resolver_count`; run totals therefore cover only resolvers in the database.
+
 The importer derives an idempotent run key from the input contents, so running the same command again
 does not increment the historical counters twice.
 
@@ -623,6 +627,24 @@ Example:
 python data_gathering/imports/resolver/import_resolvers.py data/resolvers.pq \
     --mapping "ip:resolver_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol,port:port,supported:supported" \
     --modules "resolver,asn,prefix,location,protocol" \
+    --no-dry-run
+```
+
+Raw ZDNS JSONL can be imported without first converting it to CSV. `--zdns-module` reads the
+resolver address from `nameserver` (falling back to `results.<module>.data.resolver`) and keeps
+only rows whose selected ZDNS module has status `NOERROR`. For `AAAA`, the queried address must
+also occur in the AAAA answer set after excluding the `2001:67c:254::216` mirror control address;
+this excludes forwarders whose upstream resolver answered the mirror query. This mode imports
+resolver IPs only:
+
+```bash
+docker compose run --rm data-gathering \
+    python3 data_gathering/imports/resolver/import_resolvers.py \
+    /data/ipv6-aaaa.jsonl \
+    --zdns-module AAAA \
+    --source ipv6-hitlist-service \
+    --is-public \
+    --verified \
     --no-dry-run
 ```
 

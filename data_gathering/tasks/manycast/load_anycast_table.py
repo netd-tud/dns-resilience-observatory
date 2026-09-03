@@ -66,8 +66,22 @@ def _manycast_path(data_dir: Path, manycast_path: Path | None, ip_version: int) 
 def _prepare_rows(manycast_path: Path, expected_ip_version: int | None = None) -> AnycastImportRows:
     logger.info("Loading Manycast parquet: {}", manycast_path)
 
-    required_columns = ["prefix", "backing_prefix", "partial", "ASN", "locations"]
-    frame = pl.read_parquet(manycast_path).select(required_columns)
+    required_columns = ["prefix", "backing_prefix", "ASN", "locations"]
+    available_columns = set(pl.scan_parquet(manycast_path).collect_schema().names())
+    missing_columns = sorted(set(required_columns) - available_columns)
+    if missing_columns:
+        raise ValueError(
+            f"Manycast parquet {manycast_path} is missing required columns: {', '.join(missing_columns)}"
+        )
+
+    selected_columns = [*required_columns]
+    if "partial" in available_columns:
+        selected_columns.append("partial")
+    frame = pl.read_parquet(manycast_path).select(selected_columns)
+    if "partial" not in available_columns:
+        logger.info("Manycast parquet has no IPv4-only partial flag; defaulting partial=false")
+        frame = frame.with_columns(pl.lit(False).alias("partial"))
+
     normalized_base = frame.with_columns(
         pl.col("prefix").map_elements(_normalize_prefix, return_dtype=pl.Utf8),
         pl.col("backing_prefix").map_elements(_normalize_prefix, return_dtype=pl.Utf8),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import logging
 import sys
 from datetime import date, datetime, timezone
@@ -45,6 +46,7 @@ SUPPORTED_COLUMNS = set().union(*MODULE_REQUIRED_COLUMNS.values()) | {
     "verified",
 }
 ATTRIBUTE_MODULES = ("asn", "prefix", "location", "protocol", "dohpath", "org", "domain")
+IPV6_RR_MIRROR_CONTROL_IP = "2001:67c:254::216"
 
 
 def parse_column_mapping(mapping_values: Iterable[str] | None) -> dict[str, str]:
@@ -128,6 +130,137 @@ def read_input_file(
     if suffix in {".json", ".jsonl", ".ndjson"}:
         return pl.read_ndjson(path) if suffix in {".jsonl", ".ndjson"} else pl.read_json(path)
     raise ValueError(f"Unsupported input file type {suffix!r}; use CSV, Parquet, JSON, or NDJSON")
+
+
+def extract_endpoint_ip(value: object) -> str | None:
+    """Extract an IP address from a bare or host:port ZDNS endpoint."""
+
+    text = normalize_text(value)
+    if text is None:
+        return None
+
+    ip = normalize_ip(text)
+    if ip is not None:
+        return ip
+
+    if text.startswith("["):
+        closing_bracket = text.find("]")
+        if closing_bracket > 1:
+            return normalize_ip(text[1:closing_bracket])
+
+    host, separator, port = text.rpartition(":")
+    if separator and host and port.isdigit():
+        return normalize_ip(host)
+    return None
+
+
+def zdns_answer_ips(result: dict[str, object], module: str) -> set[str]:
+    """Return canonical addresses from answer records for the selected ZDNS module."""
+
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    answers = data.get("answers") if isinstance(data, dict) else None
+    if not isinstance(answers, list):
+        return set()
+
+    answer_ips: set[str] = set()
+    for answer in answers:
+        if not isinstance(answer, dict) or str(answer.get("type") or "").upper() != module:
+            continue
+        answer_ip = normalize_ip(answer.get("answer"))
+        if answer_ip is not None:
+            answer_ips.add(answer_ip)
+    return answer_ips
+
+
+def read_zdns_noerror_rows(
+    path: Path,
+    *,
+    module: str,
+    source: str | None,
+    verified: bool,
+    is_public: bool,
+) -> tuple[int, list[dict[str, object]], int]:
+    """Stream ZDNS JSONL and retain resolver IPs whose selected module returned NOERROR."""
+
+    if path.suffix.lower() not in {".jsonl", ".ndjson"}:
+        raise ValueError("--zdns-module requires a .jsonl or .ndjson input file")
+
+    module = module.strip().upper()
+    rows: list[dict[str, object]] = []
+    total_rows = 0
+    invalid_ip_count = 0
+    malformed_count = 0
+    non_noerror_count = 0
+    nonmatching_answer_count = 0
+    import_ts = default_import_ts()
+
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            total_rows += 1
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                malformed_count += 1
+                logger.warning("Skipping invalid ZDNS JSON on line {line_number}", line_number=line_number)
+                continue
+            if not isinstance(record, dict):
+                malformed_count += 1
+                logger.warning("Skipping non-object ZDNS JSON on line {line_number}", line_number=line_number)
+                continue
+
+            results = record.get("results")
+            result = results.get(module) if isinstance(results, dict) else None
+            if not isinstance(result, dict) or str(result.get("status") or "").upper() != "NOERROR":
+                non_noerror_count += 1
+                continue
+
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            ip = extract_endpoint_ip(record.get("nameserver")) or extract_endpoint_ip(data.get("resolver"))
+            if ip is None:
+                invalid_ip_count += 1
+                continue
+
+            if module == "AAAA":
+                answer_ips = zdns_answer_ips(result, module)
+                answer_ips.discard(IPV6_RR_MIRROR_CONTROL_IP)
+                if ip not in answer_ips:
+                    nonmatching_answer_count += 1
+                    continue
+
+            rows.append(
+                {
+                    "ip": ip,
+                    "is_public": is_public,
+                    "source": source or path.name,
+                    "last_update_ts": normalize_timestamp(result.get("timestamp")) or import_ts,
+                    "verified": verified,
+                    "supported": True,
+                    "asn": None,
+                    "prefix": None,
+                    "country": None,
+                    "city": None,
+                    "protocol": None,
+                    "port": 53,
+                    "dohpath": None,
+                    "org": None,
+                    "domain": None,
+                }
+            )
+
+    logger.info(
+        "Parsed ZDNS {module} JSONL: accepted_open_resolver={accepted}, "
+        "skipped_non_noerror={non_noerror}, skipped_nonmatching_answer={nonmatching_answer}, "
+        "malformed={malformed}",
+        module=module,
+        accepted=len(rows),
+        non_noerror=non_noerror_count,
+        nonmatching_answer=nonmatching_answer_count,
+        malformed=malformed_count,
+    )
+    return total_rows, rows, invalid_ip_count
 
 
 def normalize_ip(value: object) -> str | None:
@@ -241,7 +374,19 @@ def load_rows(
     source: str | None = None,
     verified: bool = False,
     is_public: bool = False,
+    zdns_module: str | None = None,
 ):
+    if zdns_module is not None:
+        if modules != ["resolver"]:
+            raise ValueError("--zdns-module imports resolver IPs only; no attribute modules are supported")
+        return read_zdns_noerror_rows(
+            path,
+            module=zdns_module,
+            source=source,
+            verified=verified,
+            is_public=is_public,
+        )
+
     frame = read_input_file(path, has_header=has_header, headers=headers, separator=separator)
     logger.info("Loaded resolver import dataframe head:\n{head}", head=frame.head())
     validate_mapping(frame, mapping, modules)
@@ -1513,7 +1658,7 @@ def import_svcb_metadata_frame(
 
 def import_resolvers(
     path: Path,
-    mapping: dict[str, str] | str | Iterable[str],
+    mapping: dict[str, str] | str | Iterable[str] | None,
     modules: list[str] | str,
     dry_run: bool = True,
     verified: bool = False,
@@ -1523,11 +1668,14 @@ def import_resolvers(
     separator: str = ",",
     source: str | None = None,
     is_public: bool = False,
+    zdns_module: str | None = None,
 ) -> dict[str, dict[str, int]]:
     from data_gathering.config.db_connection import close_db_connection, connect_to_db
 
-    if not isinstance(mapping, dict):
+    if zdns_module is None and not isinstance(mapping, dict):
         mapping = parse_column_mapping(mapping)
+    elif zdns_module is not None:
+        mapping = {}
     modules = parse_modules(modules)
     parsed_headers = parse_headers(headers)
     parsed_separator = parse_separator(separator)
@@ -1542,9 +1690,13 @@ def import_resolvers(
         source=source,
         verified=verified,
         is_public=is_public,
+        zdns_module=zdns_module,
     )
     logger.info("Read {count} rows from {path}", count=total_rows, path=path)
-    logger.info("Mapping validation passed for modules: {modules}", modules=", ".join(modules))
+    if zdns_module is not None:
+        logger.info("ZDNS NOERROR selection enabled for module: {module}", module=zdns_module.upper())
+    else:
+        logger.info("Mapping validation passed for modules: {modules}", modules=", ".join(modules))
     if dry_run:
         logger.info("Dry-run mode is active; use --no-dry-run to write changes")
     if invalid_ip_count:
@@ -1608,13 +1760,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--mapping",
         "-m",
         action="append",
-        required=True,
-        help="Required column mapping as db_column:file_column. Can be repeated or comma-separated. Optional protocol service columns: port and supported.",
+        help="Column mapping as db_column:file_column. Required unless --zdns-module is used. Can be repeated or comma-separated. Optional protocol service columns: port and supported.",
     )
     parser.add_argument(
         "--modules",
-        required=True,
-        help="Comma-separated modules from: resolver,asn,prefix,location,protocol,dohpath,org,domain. endpoint is accepted as an alias for dohpath.",
+        help="Comma-separated modules from: resolver,asn,prefix,location,protocol,dohpath,org,domain. Defaults to resolver with --zdns-module. endpoint is accepted as an alias for dohpath.",
+    )
+    parser.add_argument(
+        "--zdns-module",
+        type=str.upper,
+        choices=("A", "AAAA"),
+        help=(
+            "Import only resolver IPs from ZDNS JSONL rows where this module returned NOERROR. "
+            "AAAA additionally requires the target IP in the answer set."
+        ),
     )
     parser.add_argument(
         "--no-dry-run",
@@ -1658,9 +1817,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
-    mapping = parse_column_mapping(args.mapping)
-    modules = parse_modules(args.modules)
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.zdns_module is None and not args.mapping:
+        parser.error("--mapping is required unless --zdns-module is used")
+    if args.zdns_module is None and not args.modules:
+        parser.error("--modules is required unless --zdns-module is used")
+    if args.zdns_module is not None and args.mapping:
+        parser.error("--mapping cannot be combined with --zdns-module")
+    mapping = parse_column_mapping(args.mapping) if args.zdns_module is None else None
+    modules = parse_modules(args.modules or "resolver")
     import_resolvers(
         args.file,
         mapping,
@@ -1673,6 +1839,7 @@ def main() -> None:
         separator=args.separator,
         source=args.source,
         is_public=args.is_public,
+        zdns_module=args.zdns_module,
     )
 
 
