@@ -516,7 +516,7 @@ def load_odns_api(
     protocol = protocol or required_config_value(__file__, "odns_default_protocol")
     odns_path = input_path or _latest_parquet(data_dir, "odns_*.pq")
     anycast_path = input_path or (
-        _latest_parquet(data_dir, "manycast-*.pq")
+        _latest_parquet(data_dir, "manycast-v4-*.pq")
         or _latest_parquet(data_dir, "manycast_*.pq")
     )
     if odns_path is None:

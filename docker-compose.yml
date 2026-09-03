@@ -72,6 +72,7 @@ services:
       - ./.env:/app/.env:ro
       - ./data:/data
       - ./data_gathering/tasks/manrs/manrs.conf:/app/data_gathering/tasks/manrs/manrs.conf:ro
+      - ./data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:/app/data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:ro
     environment:
       RUN_STARTUP_TASKS: "true"
       DATABASE_ENGINE: postgresql
@@ -111,6 +112,7 @@ services:
       - ./.env:/app/.env:ro
       - ./data:/data
       - ./data_gathering/tasks/manrs/manrs.conf:/app/data_gathering/tasks/manrs/manrs.conf:ro
+      - ./data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:/app/data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:ro
     environment:
       RUN_STARTUP_TASKS: "false"
       DATABASE_ENGINE: postgresql

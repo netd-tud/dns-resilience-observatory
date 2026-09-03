@@ -40,7 +40,7 @@ def _fetch_manycast(protocol: str) -> Path:
     if protocol != "v4":
         raise ValueError(f"Manycast fetch currently supports v4 only, got {protocol}")
     logger.info("Manycast {}: fetching anycast data", protocol)
-    parquet_path = fetch_manycast(output_dir=_odns_data_dir())
+    parquet_path = fetch_manycast(output_dir=_odns_data_dir(), ip_version=4)
     logger.info("Manycast {}: fetch complete: {}", protocol, parquet_path)
     return parquet_path
 

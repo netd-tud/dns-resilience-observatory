@@ -38,6 +38,15 @@ def _normalize_prefix(value: object | None) -> str | None:
         return None
 
 
+def _prefix_version(value: object | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return ipaddress.ip_network(str(value), strict=False).version
+    except ValueError:
+        return None
+
+
 def _parse_bool(value: object | None) -> bool:
     if isinstance(value, bool):
         return value
@@ -48,13 +57,13 @@ def _parse_bool(value: object | None) -> bool:
     return str(value).strip().lower() in {"1", "true", "t", "yes", "y"}
 
 
-def _manycast_path(data_dir: Path, manycast_path: Path | None) -> Path:
+def _manycast_path(data_dir: Path, manycast_path: Path | None, ip_version: int) -> Path:
     if manycast_path is not None:
         return manycast_path
-    return fetch_manycast(output_dir=data_dir)
+    return fetch_manycast(output_dir=data_dir, ip_version=ip_version)
 
 
-def _prepare_rows(manycast_path: Path) -> AnycastImportRows:
+def _prepare_rows(manycast_path: Path, expected_ip_version: int | None = None) -> AnycastImportRows:
     logger.info("Loading Manycast parquet: {}", manycast_path)
 
     required_columns = ["prefix", "backing_prefix", "partial", "ASN", "locations"]
@@ -63,9 +72,18 @@ def _prepare_rows(manycast_path: Path) -> AnycastImportRows:
         pl.col("prefix").map_elements(_normalize_prefix, return_dtype=pl.Utf8),
         pl.col("backing_prefix").map_elements(_normalize_prefix, return_dtype=pl.Utf8),
         pl.col("partial").map_elements(_parse_bool, return_dtype=pl.Boolean),
-    )
+    ).with_columns(pl.col("prefix").map_elements(_prefix_version, return_dtype=pl.Int8).alias("_ip_version"))
     invalid_prefixes = normalized_base.select(pl.col("prefix").is_null().sum()).item()
     normalized_base = normalized_base.filter(pl.col("prefix").is_not_null())
+    if expected_ip_version is not None:
+        wrong_family = normalized_base.select((pl.col("_ip_version") != expected_ip_version).sum()).item()
+        if wrong_family:
+            logger.warning(
+                "Skipped {} Manycast rows that did not contain IPv{} prefixes",
+                wrong_family,
+                expected_ip_version,
+            )
+        normalized_base = normalized_base.filter(pl.col("_ip_version") == expected_ip_version)
     normalized = (
         normalized_base.with_columns(pl.col("ASN").cast(pl.Utf8).str.split("_"))
         .explode("ASN")
@@ -134,12 +152,23 @@ def load_anycast_table(
     *,
     data_dir: Path | None = None,
     manycast_path: Path | None = None,
-) -> dict[str, int]:
+) -> dict[str, object]:
     data_dir = data_dir or external_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    path = _manycast_path(data_dir, manycast_path)
-    rows = _prepare_rows(path)
-    return _import_rows(rows)
+    if manycast_path is not None:
+        rows = _prepare_rows(manycast_path)
+        return _import_rows(rows)
+
+    family_reports: dict[str, dict[str, object]] = {}
+    totals: dict[str, int] = {}
+    for ip_version in (4, 6):
+        path = _manycast_path(data_dir, None, ip_version)
+        rows = _prepare_rows(path, expected_ip_version=ip_version)
+        import_report = _import_rows(rows)
+        family_reports[f"ipv{ip_version}"] = {"file": str(path), **import_report}
+        for key, value in import_report.items():
+            totals[key] = totals.get(key, 0) + value
+    return {"families": family_reports, "totals": totals}
 
 
 def main() -> None:

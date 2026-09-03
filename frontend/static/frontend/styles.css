@@ -1163,7 +1163,61 @@ a {
     margin-bottom: 10px;
 }
 
+.resolver-family-selector {
+    width: fit-content;
+    margin: 0 0 18px auto;
+    padding: 3px;
+    display: inline-flex;
+    float: right;
+    gap: 3px;
+    border: 1px solid #cbd6e4;
+    border-radius: 999px;
+    background: #f5f7fb;
+}
+
+.resolver-family-selector button {
+    min-width: 58px;
+    padding: 7px 12px;
+    border: 0;
+    border-radius: 999px;
+    color: var(--muted);
+    background: transparent;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 650;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.resolver-family-selector button:hover {
+    color: var(--accent-blue);
+}
+
+.resolver-family-selector button[aria-pressed="true"] {
+    color: #ffffff;
+    background: var(--accent-blue);
+    box-shadow: 0 3px 9px rgba(36, 54, 98, 0.2);
+}
+
+.resolver-family-selector button:focus-visible {
+    outline: 3px solid rgba(51, 73, 133, 0.24);
+    outline-offset: 2px;
+}
+
+.practice-family-selector {
+    margin: 3px 0 2px;
+    float: none;
+}
+
+.practice-family-selector button {
+    min-width: 46px;
+    padding: 6px 9px;
+    font-size: 0.72rem;
+}
+
 .resolver-hero-heading h2 {
+    clear: both;
     margin: 0;
     color: #243662;
     font-size: clamp(1.45rem, 2.4vw, 2.1rem);
@@ -1186,6 +1240,24 @@ a {
     color: #243662;
     background: var(--accent-blue-soft);
     font-size: 0.92em;
+}
+
+.resolver-family-notice {
+    margin: 10px 0 0;
+    padding-left: 12px;
+    border-left: 3px solid var(--accent-blue);
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
+.resolver-family-notice[hidden] {
+    display: none;
+}
+
+.practice-card.is-family-refreshing .practice-detail-content {
+    opacity: 0.55;
+    transition: opacity 0.18s ease;
 }
 
 .resolver-hero-count {
@@ -1864,6 +1936,16 @@ a {
 
     .home-hero h1 {
         font-size: clamp(1.8rem, 8vw, 2.2rem);
+    }
+
+    .resolver-family-selector {
+        width: 100%;
+        margin: 0 0 18px;
+        float: none;
+    }
+
+    .resolver-family-selector button {
+        flex: 1;
     }
 
     .home-actions,

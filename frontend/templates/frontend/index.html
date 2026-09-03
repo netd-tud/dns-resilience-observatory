@@ -28,8 +28,14 @@
                     <article class="resolver-hero-card" data-resolver-scope="open" aria-busy="true">
                         <header class="resolver-hero-heading">
                             <p class="home-eyebrow home-eyebrow-dark">Current Deployment</p>
+                            <div class="resolver-family-selector" role="group" aria-label="Select resolver IP version">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <h2>Open Recursive DNS Resolver <span class="resolver-hero-count is-loading" data-resolver-count>(Loading…)</span></h2>
                             <p class="resolver-hero-description">An <code>open</code> DNS resolver accepts DNS queries from any host on the Internet (intentionally or not). The common term <code>public</code> is a subclass of open resolvers and comprises intentionally globally exposed DNS services such as the DNS service of Google or Cloudflare.</p>
+                            <p class="resolver-family-notice" data-ipv6-coverage hidden>IPv6 coverage is still incomplete, so IPv6 and combined values reflect the data currently available.</p>
                         </header>
                         <div class="resolver-gauge-grid">
                             <div class="resolver-gauge-item">
@@ -83,8 +89,14 @@
                     <article class="resolver-hero-card" data-resolver-scope="closed" aria-busy="true">
                         <header class="resolver-hero-heading">
                             <p class="home-eyebrow home-eyebrow-dark">Current Deployment</p>
+                            <div class="resolver-family-selector" role="group" aria-label="Select resolver IP version">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <h2>Closed Recursive DNS Resolver <span class="resolver-hero-count is-loading" data-resolver-count>(Loading…)</span></h2>
                             <p class="resolver-hero-description">We denote a resolver as <code>closed</code> if it is not globally reachable from any host, but we find these resolvers to be used by DNS forwarders or configured as probe resolvers on external measurement probes such as RIPE Atlas.</p>
+                            <p class="resolver-family-notice" data-ipv6-coverage hidden>IPv6 coverage is still incomplete, so IPv6 and combined values reflect the data currently available.</p>
                         </header>
                         <div class="resolver-gauge-grid">
                             <div class="resolver-gauge-item">
@@ -208,6 +220,11 @@
                         <div class="practice-meta">
                             <span class="practice-theme">Integrity</span>
                             <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for DNSSEC metrics">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="dnssec-practice-details">
                                 <span aria-hidden="true">+</span>
                                 <span class="visually-hidden">Show DNSSEC validation details</span>
@@ -266,6 +283,11 @@
                         <div class="practice-meta">
                             <span class="practice-theme">Privacy</span>
                             <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for QMIN metrics">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="qmin-practice-details">
                                 <span aria-hidden="true">+</span>
                                 <span class="visually-hidden">Show QMIN implementation details</span>
@@ -334,6 +356,11 @@
                         <div class="practice-meta">
                             <span class="practice-theme">Anti-spoofing</span>
                             <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for BCP38 metrics">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="bcp38-practice-details">
                                 <span aria-hidden="true">+</span>
                                 <span class="visually-hidden">Show BCP38 compliance details</span>
@@ -395,6 +422,11 @@
                         <div class="practice-meta">
                             <span class="practice-theme">Routing security</span>
                             <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for MANRS metrics">
+                                <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                            </div>
                             <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="manrs-practice-details">
                                 <span aria-hidden="true">+</span>
                                 <span class="visually-hidden">Show MANRS compliance details</span>
@@ -512,6 +544,11 @@
                             <div class="practice-meta">
                                 <span class="practice-theme">Availability</span>
                                 <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for anycast metrics">
+                                    <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                    <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                    <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                                </div>
                                 <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="anycast-practice-details">
                                     <span aria-hidden="true">+</span>
                                     <span class="visually-hidden">Show anycast details</span>
@@ -594,6 +631,11 @@
                             <div class="practice-meta">
                                 <span class="practice-theme">Connectivity</span>
                                 <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for dual-stack metrics">
+                                    <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                    <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                    <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                                </div>
                                 <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="dual-stack-practice-details">
                                     <span aria-hidden="true">+</span>
                                     <span class="visually-hidden">Show dual stack connectivity details</span>
@@ -643,6 +685,11 @@
                             <div class="practice-meta">
                                 <span class="practice-theme">Transport security</span>
                                 <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <div class="resolver-family-selector practice-family-selector" role="group" aria-label="Select IP version for secure-protocol metrics">
+                                    <button type="button" data-ip-version="4" aria-pressed="true">IPv4</button>
+                                    <button type="button" data-ip-version="6" aria-pressed="false">IPv6</button>
+                                    <button type="button" data-ip-version="all" aria-pressed="false">Both</button>
+                                </div>
                                 <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="secure-protocol-practice-details">
                                     <span aria-hidden="true">+</span>
                                     <span class="visually-hidden">Show secure protocol details</span>
@@ -769,6 +816,13 @@
                                 <p>Provides MANRS readiness scores for resolver-linked autonomous systems and economies.</p>
                             </div>
                         </a>
+                        <a class="source-card source-card-link" data-source-key="ipv6-hitlist-service" href="https://ipv6hitlist.github.io/" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">07</span>
+                            <div>
+                                <h3>IPv6 Hitlist Service <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Provides IPv6 recursive DNS resolver IP addresses identified through UDP/53 measurements.</p>
+                            </div>
+                        </a>
                     </div>
                     <section class="source-distribution-card" data-source-distribution aria-busy="true" aria-labelledby="source-distribution-title">
                         <div class="source-distribution-heading">
@@ -847,6 +901,11 @@
         const resolverCountFormatter = new Intl.NumberFormat();
         const resolverPercentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const requestedIpVersion = new URLSearchParams(window.location.search).get("ip_version");
+        const defaultIpVersion = ["4", "6", "all"].includes(requestedIpVersion)
+            ? requestedIpVersion
+            : "4";
+        const cardFamilyStates = new WeakMap();
 
         function formatResolverPercent(value) {
             if (value > 0 && value < 0.1) {
@@ -873,25 +932,13 @@
             requestAnimationFrame(step);
         }
 
-        function resolverCard(scope) {
-            return document.querySelector(`[data-resolver-scope="${scope}"]`);
-        }
-
-        function renderResolverCount(scope, payload) {
-            const card = resolverCard(scope);
-            if (!card) {
-                return;
-            }
+        function renderResolverCount(card, payload) {
             const countElement = card.querySelector("[data-resolver-count]");
             countElement.textContent = `(${resolverCountFormatter.format(Number(payload.count || 0))})`;
             countElement.classList.remove("is-loading");
         }
 
-        function renderResolverPracticeMetric(scope, metric, payload) {
-            const card = resolverCard(scope);
-            if (!card) {
-                return;
-            }
+        function renderResolverPracticeMetric(card, metric, payload) {
             const gauge = card.querySelector(`[data-metric="${metric}"]`);
             if (!gauge) {
                 return;
@@ -914,9 +961,48 @@
             );
         }
 
-        function fetchResolverPracticeValue(scope, metric) {
+        function cardFamilyState(card) {
+            if (!cardFamilyStates.has(card)) {
+                cardFamilyStates.set(card, {
+                    ipVersion: defaultIpVersion,
+                    generation: 0,
+                    controller: new AbortController(),
+                });
+                card.dataset.ipVersion = defaultIpVersion;
+            }
+            return cardFamilyStates.get(card);
+        }
+
+        function resetCardFamilyRequests(card, ipVersion) {
+            const state = cardFamilyState(card);
+            state.controller.abort();
+            state.controller = new AbortController();
+            state.ipVersion = ipVersion;
+            state.generation += 1;
+            card.dataset.ipVersion = ipVersion;
+            return state;
+        }
+
+        function familyAwarePath(path, ipVersion) {
+            const separator = path.includes("?") ? "&" : "?";
+            return `${path}${separator}ip_version=${encodeURIComponent(ipVersion)}`;
+        }
+
+        function isAbortedFamilyRequest(error) {
+            return error && error.name === "AbortError";
+        }
+
+        function fetchResolverPracticeValue(card, scope, metric) {
             const endpointMetric = metric === "resolver_count" ? "resolver-count" : resolverMetricEndpoints[metric];
-            return fetch(`${apiBaseUrl}/api/dns-resilience/global/practice-summary/${scope}/${endpointMetric}`)
+            const state = cardFamilyState(card);
+            const path = familyAwarePath(
+                `/api/dns-resilience/global/practice-summary/${scope}/${endpointMetric}`,
+                state.ipVersion,
+            );
+            return fetch(`${apiBaseUrl}${path}`, {
+                cache: "no-store",
+                signal: state.controller.signal,
+            })
                 .then((response) => {
                     if (!response.ok) {
                         throw new Error(`${scope}/${endpointMetric} failed with status ${response.status}`);
@@ -925,13 +1011,37 @@
                 });
         }
 
-        ["open", "closed"].forEach((scope) => {
-            const card = resolverCard(scope);
+        function resetResolverHeroCard(card) {
+            card.setAttribute("aria-busy", "true");
+            const countElement = card.querySelector("[data-resolver-count]");
+            countElement.textContent = "(Loading…)";
+            countElement.classList.add("is-loading");
+            Object.keys(resolverMetricEndpoints).forEach((metric) => {
+                const gauge = card.querySelector(`[data-metric="${metric}"]`);
+                gauge.classList.add("is-loading");
+                gauge.style.setProperty("--value", 0);
+                gauge.removeAttribute("title");
+                gauge.querySelector("strong").textContent = "…";
+                gauge.setAttribute("aria-label", `${resolverMetricLabels[metric]}: loading`);
+            });
+        }
+
+        function loadResolverHeroCard(card) {
+            const scope = card.dataset.resolverScope;
+            const generation = cardFamilyState(card).generation;
+            resetResolverHeroCard(card);
             const requests = [];
             requests.push(
-                fetchResolverPracticeValue(scope, "resolver_count")
-                    .then((payload) => renderResolverCount(scope, payload))
-                    .catch(() => {
+                fetchResolverPracticeValue(card, scope, "resolver_count")
+                    .then((payload) => {
+                        if (generation === cardFamilyState(card).generation) {
+                            renderResolverCount(card, payload);
+                        }
+                    })
+                    .catch((error) => {
+                        if (isAbortedFamilyRequest(error) || generation !== cardFamilyState(card).generation) {
+                            return;
+                        }
                         const countElement = card.querySelector("[data-resolver-count]");
                         countElement.textContent = "(Unavailable)";
                         countElement.classList.remove("is-loading");
@@ -939,9 +1049,16 @@
             );
             Object.keys(resolverMetricEndpoints).forEach((metric) => {
                 requests.push(
-                    fetchResolverPracticeValue(scope, metric)
-                        .then((payload) => renderResolverPracticeMetric(scope, metric, payload))
-                        .catch(() => {
+                    fetchResolverPracticeValue(card, scope, metric)
+                        .then((payload) => {
+                            if (generation === cardFamilyState(card).generation) {
+                                renderResolverPracticeMetric(card, metric, payload);
+                            }
+                        })
+                        .catch((error) => {
+                            if (isAbortedFamilyRequest(error) || generation !== cardFamilyState(card).generation) {
+                                return;
+                            }
                             const gauge = card.querySelector(`[data-metric="${metric}"]`);
                             gauge.classList.remove("is-loading");
                             gauge.style.setProperty("--value", 0);
@@ -951,8 +1068,12 @@
                         }),
                 );
             });
-            Promise.allSettled(requests).then(() => card.setAttribute("aria-busy", "false"));
-        });
+            Promise.allSettled(requests).then(() => {
+                if (generation === cardFamilyState(card).generation) {
+                    card.setAttribute("aria-busy", "false");
+                }
+            });
+        }
 
         function fetchPracticeDetail(path) {
             return fetch(`${apiBaseUrl}${path}`, { cache: "no-store" }).then((response) => {
@@ -963,12 +1084,33 @@
             });
         }
 
+        function fetchFamilyPracticeDetail(card, path) {
+            const state = cardFamilyState(card);
+            const generation = state.generation;
+            const familyPath = familyAwarePath(path, state.ipVersion);
+            return fetch(`${apiBaseUrl}${familyPath}`, {
+                cache: "no-store",
+                signal: state.controller.signal,
+            }).then((response) => {
+                if (!response.ok) {
+                    throw new Error(`${familyPath} failed with status ${response.status}`);
+                }
+                return response.json();
+            }).then((payload) => {
+                if (generation !== cardFamilyState(card).generation) {
+                    throw new DOMException("Obsolete card request", "AbortError");
+                }
+                return payload;
+            });
+        }
+
         const publicSourceNames = {
             "odns-api": "Open DNS API",
             "manycast": "Manycast",
             "caida-spoofer": "CAIDA Spoofer",
             "apnic-dnssec": "APNIC Labs",
             "manrs-observatory": "MANRS Observatory",
+            "ipv6-hitlist-service": "IPv6 Hitlist Service",
             "ripe-stat-rpki": "RIPEstat RPKI",
             "measurements.qmin": "Active QMIN Measurement",
             "measurements.zdns.dnssec": "ZDNS DNSSEC Measurement",
@@ -1187,7 +1329,7 @@
             const labels = { positive: "Validating", negative: "Not validating", unknown: "Unknown" };
             const scopes = ["open", "closed", "country"];
             return Promise.allSettled(scopes.map((scope) =>
-                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/dnssec/${scope}`)
+                fetchFamilyPracticeDetail(card, `/api/dns-resilience/global/practice-details/dnssec/${scope}`)
                     .then((payload) => {
                         const target = card.querySelector(`[data-dnssec-scope="${scope}"]`);
                         if (scope === "country") {
@@ -1209,7 +1351,10 @@
                             unknownCountLabel: countLabel(payload.unknown_count),
                         }, labels, scopeLabel);
                     })
-                    .catch(() => {
+                    .catch((error) => {
+                        if (isAbortedFamilyRequest(error)) {
+                            return;
+                        }
                         const target = card.querySelector(`[data-dnssec-scope="${scope}"]`);
                         renderUnavailablePracticeGauge(target, scope === "country" ? "APNIC country average" : `${scope} recursive DNS resolvers`);
                     })
@@ -1256,7 +1401,7 @@
                 unknown: "Unknown",
             };
             const scopeRequests = ["open", "closed"].map((scope) =>
-                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/qmin/${scope}`)
+                fetchFamilyPracticeDetail(card, `/api/dns-resilience/global/practice-details/qmin/${scope}`)
                     .then((payload) => {
                         const target = card.querySelector(`[data-qmin-scope="${scope}"]`);
                         const scopeLabel = scope === "open" ? "Open recursive DNS resolvers" : "Closed recursive DNS resolvers";
@@ -1274,12 +1419,15 @@
                             unknownCountLabel: countLabel(payload.unknown_count),
                         }, labels, scopeLabel);
                     })
-                    .catch(() => {
+                    .catch((error) => {
+                        if (isAbortedFamilyRequest(error)) {
+                            return;
+                        }
                         const target = card.querySelector(`[data-qmin-scope="${scope}"]`);
                         renderUnavailablePracticeGauge(target, `${scope} recursive DNS resolvers`);
                     })
             );
-            const distributionRequest = fetchPracticeDetail("/api/dns-resilience/global/qmin")
+            const distributionRequest = fetchFamilyPracticeDetail(card, "/api/dns-resilience/global/qmin")
                 .then((payload) => {
                     renderQminDistribution(
                         card.querySelector('[data-qmin-distribution="max"]'),
@@ -1290,7 +1438,10 @@
                         payload.qmin_minimize_one_lab_distribution,
                     );
                 })
-                .catch(() => {
+                .catch((error) => {
+                    if (isAbortedFamilyRequest(error)) {
+                        return;
+                    }
                     card.querySelectorAll("[data-qmin-distribution]").forEach((container) => {
                         renderQminDistribution(container, []);
                     });
@@ -1319,13 +1470,16 @@
 
         function loadBinaryPracticeScopes(card, options) {
             return ["open", "closed"].map((scope) =>
-                fetchPracticeDetail(`/api/dns-resilience/global/practice-summary/${scope}/${options.metric}`)
+                fetchFamilyPracticeDetail(card, `/api/dns-resilience/global/practice-summary/${scope}/${options.metric}`)
                     .then((payload) => {
                         const target = card.querySelector(`[${options.scopeAttribute}="${scope}"]`);
                         const scopeLabel = scope === "open" ? "Open recursive DNS resolvers" : "Closed recursive DNS resolvers";
                         renderBinaryPracticeGauge(target, payload, options.labels, `${scopeLabel}, ${options.ariaLabel}`);
                     })
-                    .catch(() => {
+                    .catch((error) => {
+                        if (isAbortedFamilyRequest(error)) {
+                            return;
+                        }
                         const target = card.querySelector(`[${options.scopeAttribute}="${scope}"]`);
                         renderUnavailablePracticeGauge(target, `${scope} recursive DNS resolvers, ${options.ariaLabel}`);
                     })
@@ -1427,12 +1581,15 @@
                 ariaLabel: "anycast deployment",
                 labels: { positive: "Anycast enabled", negative: "Not anycast" },
             });
-            const rankingRequest = fetchPracticeDetail("/api/dns-resilience/global/anycast")
+            const rankingRequest = fetchFamilyPracticeDetail(card, "/api/dns-resilience/global/anycast")
                 .then((payload) => {
                     renderAnycastTopFive(card, payload.top_anycast_resolvers);
                     renderAnycastCompanyTopFive(card, payload.top_anycast_companies);
                 })
-                .catch(() => {
+                .catch((error) => {
+                    if (isAbortedFamilyRequest(error)) {
+                        return;
+                    }
                     renderAnycastTopFive(card, []);
                     renderAnycastCompanyTopFive(card, []);
                 });
@@ -1494,11 +1651,15 @@
                         `[data-manrs-entity="${entityType}"][data-manrs-scope="${scope}"]`,
                     );
                     requests.push(
-                        fetchPracticeDetail(
+                        fetchFamilyPracticeDetail(
+                            card,
                             `/api/dns-resilience/global/practice-details/manrs/${entityType}/${scope}`,
                         )
                             .then((payload) => renderManrsPracticeGauge(target, payload))
-                            .catch(() => {
+                            .catch((error) => {
+                                if (isAbortedFamilyRequest(error)) {
+                                    return;
+                                }
                                 const entityLabel = entityType === "asn" ? "AS" : "economy";
                                 renderUnavailablePracticeGauge(
                                     target,
@@ -1547,12 +1708,15 @@
 
         function loadBcp38PracticeDetails(card) {
             return Promise.allSettled(["open", "closed"].map((scope) =>
-                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/bcp38/${scope}`)
+                fetchFamilyPracticeDetail(card, `/api/dns-resilience/global/practice-details/bcp38/${scope}`)
                     .then((payload) => {
                         const target = card.querySelector(`[data-bcp38-scope="${scope}"]`);
                         renderBcp38PracticeGauge(target, payload, scope);
                     })
-                    .catch(() => {
+                    .catch((error) => {
+                        if (isAbortedFamilyRequest(error)) {
+                            return;
+                        }
                         const target = card.querySelector(`[data-bcp38-scope="${scope}"]`);
                         renderUnavailablePracticeGauge(
                             target,
@@ -1696,12 +1860,15 @@
         }
 
         function loadProtocolPracticeDetails(card) {
-            return fetchPracticeDetail("/api/dns-resilience/global/protocols")
+            return fetchFamilyPracticeDetail(card, "/api/dns-resilience/global/protocols")
                 .then((payload) => {
                     renderProtocolRings(card, payload);
                     renderProtocolPortBars(card, payload);
                 })
-                .catch(() => {
+                .catch((error) => {
+                    if (isAbortedFamilyRequest(error)) {
+                        return;
+                    }
                     const gauge = card.querySelector(".protocol-multiring-speedometer");
                     gauge.classList.remove("is-loading");
                     gauge.querySelector("[data-protocol-type-count]").textContent = "—";
@@ -1720,6 +1887,61 @@
             "dual-stack": { label: "dual stack connectivity", loader: loadDualStackPracticeDetails },
             protocols: { label: "secure protocol", loader: loadProtocolPracticeDetails },
         };
+
+        function syncIpVersionControls(card) {
+            const selectedIpVersion = cardFamilyState(card).ipVersion;
+            card.querySelectorAll("[data-ip-version]").forEach((button) => {
+                button.setAttribute("aria-pressed", String(button.dataset.ipVersion === selectedIpVersion));
+            });
+            card.querySelectorAll("[data-ipv6-coverage]").forEach((notice) => {
+                notice.hidden = selectedIpVersion === "4";
+            });
+        }
+
+        function reloadExpandedPracticeDetails(card, generation) {
+            const toggle = card.querySelector(".practice-card-toggle");
+            const detailConfig = practiceDetailConfig[card.dataset.practiceCard];
+            if (!toggle || toggle.getAttribute("aria-expanded") !== "true" || !detailConfig) {
+                return;
+            }
+            card.classList.add("is-family-refreshing");
+            card.setAttribute("aria-busy", "true");
+            Promise.resolve(detailConfig.loader(card)).finally(() => {
+                if (generation === cardFamilyState(card).generation) {
+                    card.classList.remove("is-family-refreshing");
+                    card.setAttribute("aria-busy", "false");
+                }
+            });
+        }
+
+        function selectIpVersion(card, ipVersion) {
+            if (!["4", "6", "all"].includes(ipVersion) || ipVersion === cardFamilyState(card).ipVersion) {
+                return;
+            }
+            const state = resetCardFamilyRequests(card, ipVersion);
+            syncIpVersionControls(card);
+            if (card.matches(".resolver-hero-card[data-resolver-scope]")) {
+                loadResolverHeroCard(card);
+                return;
+            }
+            reloadExpandedPracticeDetails(card, state.generation);
+        }
+
+        document.querySelectorAll("[data-ip-version]").forEach((button) => {
+            button.addEventListener("click", () => {
+                const card = button.closest("[data-practice-card], .resolver-hero-card[data-resolver-scope]");
+                if (card) {
+                    selectIpVersion(card, button.dataset.ipVersion);
+                }
+            });
+        });
+        document.querySelectorAll("[data-practice-card], .resolver-hero-card[data-resolver-scope]").forEach((card) => {
+            cardFamilyState(card);
+            syncIpVersionControls(card);
+            if (card.matches(".resolver-hero-card[data-resolver-scope]")) {
+                loadResolverHeroCard(card);
+            }
+        });
 
         document.querySelectorAll(".practice-card-toggle").forEach((button) => {
             button.addEventListener("click", () => {

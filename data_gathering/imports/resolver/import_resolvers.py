@@ -240,6 +240,7 @@ def load_rows(
     separator: str = ",",
     source: str | None = None,
     verified: bool = False,
+    is_public: bool = False,
 ):
     frame = read_input_file(path, has_header=has_header, headers=headers, separator=separator)
     logger.info("Loaded resolver import dataframe head:\n{head}", head=frame.head())
@@ -259,7 +260,7 @@ def load_rows(
             "ip": ip,
             "is_public": normalize_bool(record.get(mapping["is_public"]), default=False)
             if "is_public" in mapping
-            else False,
+            else is_public,
             "source": normalize_text(record.get(mapping["source"])) if "source" in mapping else source or path.name,
             "last_update_ts": normalize_timestamp(record.get(mapping["last_update_ts"]))
             if "last_update_ts" in mapping
@@ -1521,6 +1522,7 @@ def import_resolvers(
     headers: list[str] | str | Iterable[str] | None = None,
     separator: str = ",",
     source: str | None = None,
+    is_public: bool = False,
 ) -> dict[str, dict[str, int]]:
     from data_gathering.config.db_connection import close_db_connection, connect_to_db
 
@@ -1539,6 +1541,7 @@ def import_resolvers(
         separator=parsed_separator,
         source=source,
         verified=verified,
+        is_public=is_public,
     )
     logger.info("Read {count} rows from {path}", count=total_rows, path=path)
     logger.info("Mapping validation passed for modules: {modules}", modules=", ".join(modules))
@@ -1646,6 +1649,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         help="Default source value when no source column is mapped. Defaults to the input filename.",
     )
+    parser.add_argument(
+        "--is-public",
+        action="store_true",
+        help="Set is_public=true when no is_public column is mapped.",
+    )
     return parser
 
 
@@ -1664,6 +1672,7 @@ def main() -> None:
         headers=args.headers,
         separator=args.separator,
         source=args.source,
+        is_public=args.is_public,
     )
 
 

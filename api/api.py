@@ -521,70 +521,82 @@ def get_global_data_sources(request):
     "/dns-resilience/global/practice-summary",
     summary="Get measurable-practice percentages for open and closed recursive DNS resolvers",
 )
-def get_global_resolver_practice_summary(request):
-    logger.info("Global open and closed resolver practice summary request")
-    return dns_resilience_service.get_global_resolver_practice_summary()
+def get_global_resolver_practice_summary(request, ip_version: str = "all"):
+    logger.info("Global open and closed resolver practice summary request: ip_version=%s", ip_version)
+    return dns_resilience_service.get_global_resolver_practice_summary(ip_version)
 
 
 @api.get(
     "/dns-resilience/global/practice-summary/{scope}/{metric}",
     summary="Get one measurable-practice value for open or closed recursive DNS resolvers",
 )
-def get_global_resolver_practice_metric(request, scope: str, metric: str):
-    logger.info("Global resolver practice metric request: scope=%s metric=%s", scope, metric)
-    return dns_resilience_service.get_global_resolver_practice_metric(scope, metric)
+def get_global_resolver_practice_metric(
+    request, scope: str, metric: str, ip_version: str = "all"
+):
+    logger.info(
+        "Global resolver practice metric request: scope=%s metric=%s ip_version=%s",
+        scope,
+        metric,
+        ip_version,
+    )
+    return dns_resilience_service.get_global_resolver_practice_metric(scope, metric, ip_version)
 
 
 @api.get(
     "/dns-resilience/global/practice-details/dnssec/{scope}",
     summary="Get DNSSEC validation detail for open resolvers, closed resolvers, or countries",
 )
-def get_global_dnssec_practice_detail(request, scope: str):
-    logger.info("Global DNSSEC practice detail request: scope=%s", scope)
-    return dns_resilience_service.get_global_dnssec_practice_detail(scope)
+def get_global_dnssec_practice_detail(request, scope: str, ip_version: str = "all"):
+    logger.info("Global DNSSEC practice detail request: scope=%s ip_version=%s", scope, ip_version)
+    return dns_resilience_service.get_global_dnssec_practice_detail(scope, ip_version)
 
 
 @api.get(
     "/dns-resilience/global/practice-details/qmin/{scope}",
     summary="Get QMIN implementation detail for open or closed recursive DNS resolvers",
 )
-def get_global_qmin_practice_detail(request, scope: str):
-    logger.info("Global QMIN practice detail request: scope=%s", scope)
-    return dns_resilience_service.get_global_qmin_practice_detail(scope)
+def get_global_qmin_practice_detail(request, scope: str, ip_version: str = "all"):
+    logger.info("Global QMIN practice detail request: scope=%s ip_version=%s", scope, ip_version)
+    return dns_resilience_service.get_global_qmin_practice_detail(scope, ip_version)
 
 
 @api.get(
     "/dns-resilience/global/practice-details/manrs/{entity_type}/{scope}",
     summary="Get average MANRS readiness for resolver-linked ASNs or countries",
 )
-def get_global_manrs_practice_detail(request, entity_type: str, scope: str):
+def get_global_manrs_practice_detail(
+    request, entity_type: str, scope: str, ip_version: str = "all"
+):
     logger.info(
-        "Global MANRS practice detail request: entity_type=%s scope=%s",
+        "Global MANRS practice detail request: entity_type=%s scope=%s ip_version=%s",
         entity_type,
         scope,
+        ip_version,
     )
-    return dns_resilience_service.get_global_manrs_practice_detail(entity_type, scope)
+    return dns_resilience_service.get_global_manrs_practice_detail(
+        entity_type, scope, ip_version
+    )
 
 
 @api.get(
     "/dns-resilience/global/practice-details/bcp38/{scope}",
     summary="Get BCP38 evidence for open or closed recursive DNS resolvers",
 )
-def get_global_bcp38_practice_detail(request, scope: str):
-    logger.info("Global BCP38 practice detail request: scope=%s", scope)
-    return dns_resilience_service.get_global_bcp38_practice_detail(scope)
+def get_global_bcp38_practice_detail(request, scope: str, ip_version: str = "all"):
+    logger.info("Global BCP38 practice detail request: scope=%s ip_version=%s", scope, ip_version)
+    return dns_resilience_service.get_global_bcp38_practice_detail(scope, ip_version)
 
 
 @api.get("/dns-resilience/global/anycast", summary="Get global resolver anycast summary")
-def get_global_anycast(request):
-    logger.info("Global anycast resolver summary request")
-    return dns_resilience_service.get_global_anycast_summary()
+def get_global_anycast(request, ip_version: str = "all"):
+    logger.info("Global anycast resolver summary request: ip_version=%s", ip_version)
+    return dns_resilience_service.get_global_anycast_summary(ip_version)
 
 
 @api.get("/dns-resilience/global/qmin", summary="Get global resolver QMIN summary")
-def get_global_qmin(request):
-    logger.info("Global QMIN resolver summary request")
-    return dns_resilience_service.get_global_qmin_summary()
+def get_global_qmin(request, ip_version: str = "all"):
+    logger.info("Global QMIN resolver summary request: ip_version=%s", ip_version)
+    return dns_resilience_service.get_global_qmin_summary(ip_version)
 
 
 @api.get(
@@ -610,9 +622,9 @@ def get_qmin_state_prefixes(
 
 
 @api.get("/dns-resilience/global/protocols", summary="Get global resolver protocol summary")
-def get_global_protocols(request):
-    logger.info("Global resolver protocol summary request")
-    return dns_resilience_service.get_global_protocol_summary()
+def get_global_protocols(request, ip_version: str = "all"):
+    logger.info("Global resolver protocol summary request: ip_version=%s", ip_version)
+    return dns_resilience_service.get_global_protocol_summary(ip_version)
 
 
 @api.get("/dns-resilience/global/spoofing", summary="Get global resolver spoofing-environment summary")

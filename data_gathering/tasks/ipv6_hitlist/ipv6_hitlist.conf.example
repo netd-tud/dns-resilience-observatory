@@ -1,0 +1,22 @@
+[tasks.py]
+logging_tag = ipv6_hitlist_tasks
+
+[update_ipv6_hitlist.py]
+logging_tag = update_ipv6_hitlist.py
+base_url = https://alcatraz.net.in.tum.de/ipv6-hitlist-service/registered/output/
+USERNAME = <IPV6_HITLIST_USERNAME>
+PASSWORD = <IPV6_HITLIST_PASSWORD>
+data_dir = /data/external/ipv6-hitlist
+interim_dir = /data/interim/ipv6-hitlist
+request_timeout_seconds = 120
+force = false
+
+[parse_ipv6_hitlist.py]
+logging_tag = parse_ipv6_hitlist.py
+
+[export_ipv6_resolver_ips.py]
+logging_tag = export_ipv6_resolver_ips.py
+output_dir = /data/exports
+
+[script_config.py]
+logging_tag = ipv6_hitlist_script_config.py

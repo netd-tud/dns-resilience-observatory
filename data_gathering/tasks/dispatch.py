@@ -19,6 +19,7 @@ FIRST_BOOTSTRAP_TASKS = [
     "data_gathering.tasks.odns.refresh",
     "data_gathering.tasks.apnic_dnssec.refresh",
     "data_gathering.tasks.webpage_resolver.refresh",
+    "data_gathering.tasks.ipv6_hitlist.refresh",
     "data_gathering.tasks.manrs.refresh",
     "data_gathering.tasks.rpki.refresh",
 ]

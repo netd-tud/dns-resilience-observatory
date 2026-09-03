@@ -47,6 +47,23 @@ class DNSResilienceService:
         rows = self._fetchall(sql, params)
         return rows[0] if rows else None
 
+    def normalize_ip_version(self, ip_version: int | str | None = "all") -> str:
+        normalized = str(ip_version or "all").strip().lower()
+        aliases = {"4": "4", "v4": "4", "ipv4": "4", "6": "6", "v6": "6", "ipv6": "6"}
+        if normalized in {"all", "both", "total"}:
+            return "all"
+        if normalized in aliases:
+            return aliases[normalized]
+        raise ValidationError("IP version must be '4', '6', or 'all'")
+
+    def _resolver_family_sql(self, alias: str, ip_version: int | str | None) -> str:
+        normalized = self.normalize_ip_version(ip_version)
+        return "TRUE" if normalized == "all" else f"family({alias}.ip) = {normalized}"
+
+    def _prefix_family_sql(self, alias: str, ip_version: int | str | None) -> str:
+        normalized = self.normalize_ip_version(ip_version)
+        return "TRUE" if normalized == "all" else f"family({alias}.prefix) = {normalized}"
+
     def _protocol_tokens(self, value: str | None) -> set[str]:
         return set(re.findall(r"[a-z]+", (value or "").lower()))
 
@@ -1861,9 +1878,11 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_resolver_practice_summary(self) -> dict:
+    def get_global_resolver_practice_summary(self, ip_version: int | str = "all") -> dict:
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
         rows = self._fetchall(
-            """
+            f"""
             WITH dual_stack_resolver AS MATERIALIZED (
                 SELECT resolver_id
                 FROM resolver
@@ -1902,6 +1921,7 @@ class DNSResilienceService:
                 LEFT JOIN safe_qmin_resolver sq ON sq.resolver_id = r.resolver_id
                 LEFT JOIN dual_stack_resolver ds ON ds.resolver_id = r.resolver_id
                 LEFT JOIN secure_protocol_resolver sp ON sp.resolver_id = r.resolver_id
+                WHERE {family_sql}
             )
             SELECT
                 is_public,
@@ -1956,7 +1976,12 @@ class DNSResilienceService:
         return summary
 
     @cached(ttl=900)
-    def get_global_resolver_practice_metric(self, scope: str, metric: str) -> dict:
+    def get_global_resolver_practice_metric(
+        self,
+        scope: str,
+        metric: str,
+        ip_version: int | str = "all",
+    ) -> dict:
         normalized_scope = scope.strip().lower()
         if normalized_scope not in {"open", "closed"}:
             raise ValidationError("Resolver scope must be 'open' or 'closed'")
@@ -2013,15 +2038,18 @@ class DNSResilienceService:
             raise ValidationError(f"Unsupported resolver practice metric: {metric}")
 
         is_public = normalized_scope == "open"
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
         if normalized_metric == "resolver-count":
             row = self._fetchone(
-                "SELECT COUNT(*)::INTEGER AS resolver_count FROM resolver WHERE is_public = %s",
+                f"SELECT COUNT(*)::INTEGER AS resolver_count FROM resolver r WHERE is_public = %s AND {family_sql}",
                 [is_public],
             ) or {}
             resolver_count = row.get("resolver_count", 0) or 0
             return {
                 "scope": normalized_scope,
                 "metric": normalized_metric,
+                "ip_version": normalized_ip_version,
                 "resolver_count": resolver_count,
                 "count": resolver_count,
                 "percent": 100.0 if resolver_count else 0.0,
@@ -2033,7 +2061,7 @@ class DNSResilienceService:
                 COUNT(*)::INTEGER AS resolver_count,
                 COUNT(*) FILTER (WHERE {predicates[normalized_metric]})::INTEGER AS metric_count
             FROM resolver r
-            WHERE r.is_public = %s
+            WHERE r.is_public = %s AND {family_sql}
             """,
             [is_public],
         ) or {}
@@ -2042,14 +2070,20 @@ class DNSResilienceService:
         return {
             "scope": normalized_scope,
             "metric": normalized_metric,
+            "ip_version": normalized_ip_version,
             "resolver_count": resolver_count,
             "count": metric_count,
             "percent": self._pc(metric_count, resolver_count),
         }
 
     @cached(ttl=900)
-    def get_global_dnssec_practice_detail(self, scope: str) -> dict:
+    def get_global_dnssec_practice_detail(
+        self,
+        scope: str,
+        ip_version: int | str = "all",
+    ) -> dict:
         normalized_scope = scope.strip().lower()
+        normalized_ip_version = self.normalize_ip_version(ip_version)
         if normalized_scope == "country":
             row = self._fetchone(
                 """
@@ -2068,6 +2102,8 @@ class DNSResilienceService:
             not_validating_pc = max(0.0, 100.0 - validating_pc - unknown_pc)
             return {
                 "scope": normalized_scope,
+                "ip_version": "all",
+                "family_specific": False,
                 "country_count": row.get("country_count", 0) or 0,
                 "validating_pc": round(validating_pc, 2),
                 "not_validating_pc": round(not_validating_pc, 2),
@@ -2076,8 +2112,9 @@ class DNSResilienceService:
 
         if normalized_scope not in {"open", "closed"}:
             raise ValidationError("DNSSEC detail scope must be 'open', 'closed', or 'country'")
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
         row = self._fetchone(
-            """
+            f"""
             SELECT
                 COUNT(*)::INTEGER AS resolver_count,
                 COUNT(*) FILTER (WHERE dr.validates IS TRUE)::INTEGER AS validating_count,
@@ -2085,7 +2122,7 @@ class DNSResilienceService:
                 COUNT(*) FILTER (WHERE dr.ip IS NULL OR dr.validates IS NULL)::INTEGER AS unknown_count
             FROM resolver r
             LEFT JOIN dnssec_resolver dr ON dr.ip = r.ip
-            WHERE r.is_public = %s
+            WHERE r.is_public = %s AND {family_sql}
             """,
             [normalized_scope == "open"],
         ) or {}
@@ -2095,6 +2132,8 @@ class DNSResilienceService:
         unknown_count = row.get("unknown_count", 0) or 0
         return {
             "scope": normalized_scope,
+            "ip_version": normalized_ip_version,
+            "family_specific": True,
             "resolver_count": resolver_count,
             "validating_count": validating_count,
             "not_validating_count": not_validating_count,
@@ -2105,12 +2144,18 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_qmin_practice_detail(self, scope: str) -> dict:
+    def get_global_qmin_practice_detail(
+        self,
+        scope: str,
+        ip_version: int | str = "all",
+    ) -> dict:
         normalized_scope = scope.strip().lower()
         if normalized_scope not in {"open", "closed"}:
             raise ValidationError("QMIN detail scope must be 'open' or 'closed'")
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
         row = self._fetchone(
-            """
+            f"""
             SELECT
                 COUNT(*)::INTEGER AS resolver_count,
                 COUNT(*) FILTER (
@@ -2129,7 +2174,7 @@ class DNSResilienceService:
                 )::INTEGER AS unstable_count
             FROM resolver r
             LEFT JOIN qmin_resolver q ON q.resolver_id = r.resolver_id
-            WHERE r.is_public = %s
+            WHERE r.is_public = %s AND {family_sql}
             """,
             [normalized_scope == "open"],
         ) or {}
@@ -2148,6 +2193,7 @@ class DNSResilienceService:
         )
         return {
             "scope": normalized_scope,
+            "ip_version": normalized_ip_version,
             "resolver_count": resolver_count,
             "proper_count": proper_count,
             "risk_count": risk_count,
@@ -2162,29 +2208,36 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_manrs_practice_detail(self, entity_type: str, scope: str) -> dict:
+    def get_global_manrs_practice_detail(
+        self,
+        entity_type: str,
+        scope: str,
+        ip_version: int | str = "all",
+    ) -> dict:
         normalized_entity_type = entity_type.strip().lower()
         normalized_scope = scope.strip().lower()
         if normalized_entity_type not in {"asn", "country"}:
             raise ValidationError("MANRS entity type must be 'asn' or 'country'")
         if normalized_scope not in {"open", "closed"}:
             raise ValidationError("MANRS resolver scope must be 'open' or 'closed'")
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
 
         if normalized_entity_type == "asn":
-            entity_sql = """
+            entity_sql = f"""
                 SELECT DISTINCT ra.asn::BIGINT AS entity
                 FROM resolver r
                 JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
-                WHERE r.is_public = %s AND ra.asn > 0
+                WHERE r.is_public = %s AND ra.asn > 0 AND {family_sql}
             """
             score_table = "manrs_asn"
             score_key = "asn"
         else:
-            entity_sql = """
+            entity_sql = f"""
                 SELECT DISTINCT UPPER(rl.country) AS entity
                 FROM resolver r
                 JOIN resolver_location rl ON rl.resolver_id = r.resolver_id
-                WHERE r.is_public = %s AND rl.country ~ '^[A-Za-z]{3}$'
+                WHERE r.is_public = %s AND rl.country ~ '^[A-Za-z]{{3}}$' AND {family_sql}
             """
             score_table = "manrs_country"
             score_key = "country"
@@ -2230,6 +2283,7 @@ class DNSResilienceService:
         return {
             "entity_type": normalized_entity_type,
             "scope": normalized_scope,
+            "ip_version": normalized_ip_version,
             "entity_count": entity_count,
             "scored_entity_count": scored_entity_count,
             "unscored_entity_count": max(entity_count - scored_entity_count, 0),
@@ -2237,10 +2291,18 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_bcp38_practice_detail(self, scope: str) -> dict:
+    def get_global_bcp38_practice_detail(
+        self,
+        scope: str,
+        ip_version: int | str = "all",
+    ) -> dict:
         normalized_scope = scope.strip().lower()
         if normalized_scope not in {"open", "closed"}:
             raise ValidationError("BCP38 resolver scope must be 'open' or 'closed'")
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        resolver_family_sql = self._resolver_family_sql("r", normalized_ip_version)
+        spoofing_family_sql = self._prefix_family_sql("s", normalized_ip_version)
+        include_transparent_forwarders = "FALSE" if normalized_ip_version == "6" else "TRUE"
 
         row = self._fetchone(
             f"""
@@ -2251,12 +2313,14 @@ class DNSResilienceService:
                 FROM resolver r
                 LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
                 WHERE r.is_public = %s
+                  AND {resolver_family_sql}
             ),
             caida_allowing_asns AS MATERIALIZED (
                 SELECT DISTINCT sa.asn
                 FROM spoofing_asn sa
                 JOIN spoofing s ON s.prefix = sa.prefix
                 WHERE s.source = 'caida-spoofer'
+                  AND {spoofing_family_sql}
                   AND {self._SPOOFING_ALLOW_SQL}
             ),
             transparent_forwarder_asns AS MATERIALIZED (
@@ -2269,6 +2333,7 @@ class DNSResilienceService:
                     )
                   AND fa.asn > 0
                   AND f.source = 'odns-api'
+                  AND {include_transparent_forwarders}
             ),
             allowing_asns AS MATERIALIZED (
                 SELECT asn FROM caida_allowing_asns
@@ -2280,6 +2345,7 @@ class DNSResilienceService:
                 FROM spoofing_asn sa
                 JOIN spoofing s ON s.prefix = sa.prefix
                 WHERE s.source = 'caida-spoofer'
+                  AND {spoofing_family_sql}
                   AND NOT {self._SPOOFING_ALLOW_SQL}
                   AND (
                       LOWER(COALESCE(s.privatespoof, '')) = 'blocked'
@@ -2322,6 +2388,7 @@ class DNSResilienceService:
         )
         return {
             "scope": normalized_scope,
+            "ip_version": normalized_ip_version,
             "resolver_count": resolver_count,
             "allowing_resolver_count": allowing_resolver_count,
             "allowing_resolver_pc": self._pc(allowing_resolver_count, resolver_count),
@@ -2335,23 +2402,28 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_anycast_summary(self) -> dict:
+    def get_global_anycast_summary(self, ip_version: int | str = "all") -> dict:
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("resolver", normalized_ip_version)
         row = self._fetchone(
-            """
+            f"""
             SELECT
                 COUNT(*)::INTEGER AS resolver_count,
                 COUNT(*) FILTER (
                     WHERE EXISTS (SELECT 1 FROM anycast a WHERE resolver.ip <<= a.prefix)
                 )::INTEGER AS resolver_anycast_count
             FROM resolver
+            WHERE {family_sql}
             """
         ) or {}
+        ranked_family_sql = self._resolver_family_sql("r", normalized_ip_version)
         rankings = self._fetchone(
-            """
+            f"""
             WITH resolver_anycast_prefix AS (
                 SELECT DISTINCT r.resolver_id, r.ip, a.prefix
                 FROM resolver r
                 JOIN anycast a ON r.ip <<= a.prefix
+                WHERE {ranked_family_sql}
             ),
             country_agg AS (
                 SELECT
@@ -2472,6 +2544,7 @@ class DNSResilienceService:
         resolver_count = row.get("resolver_count", 0) or 0
         resolver_anycast_count = row.get("resolver_anycast_count", 0) or 0
         return {
+            "ip_version": normalized_ip_version,
             "resolver_count": resolver_count,
             "resolver_anycast_count": resolver_anycast_count,
             "resolver_anycast_pc": self._pc(resolver_anycast_count, resolver_count),
@@ -2480,23 +2553,37 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_qmin_summary(self) -> dict:
+    def get_global_qmin_summary(self, ip_version: int | str = "all") -> dict:
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
         row = self._fetchone(
-            """
+            f"""
+            WITH scoped_resolvers AS (
+                SELECT DISTINCT r.resolver_id
+                FROM resolver r
+                WHERE {family_sql}
+            )
             SELECT
-                COUNT(DISTINCT resolver_id)::INTEGER AS qmin_measured_count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE qmin = 'yes')::INTEGER AS qmin_enabled_count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE max_minimise_count > 10)::INTEGER AS qmin_amplification_risk_count
-            FROM qmin_resolver
+                COUNT(DISTINCT q.resolver_id)::INTEGER AS qmin_measured_count,
+                COUNT(DISTINCT q.resolver_id) FILTER (WHERE q.qmin = 'yes')::INTEGER AS qmin_enabled_count,
+                COUNT(DISTINCT q.resolver_id) FILTER (WHERE q.max_minimise_count > 10)::INTEGER AS qmin_amplification_risk_count
+            FROM qmin_resolver q
+            JOIN scoped_resolvers scoped ON scoped.resolver_id = q.resolver_id
             """
         ) or {}
         qmin_max_minimise = self._fetchall(
-            """
-            WITH distribution AS (
-                SELECT max_minimise_count AS value, COUNT(*)::INTEGER AS count
-                FROM qmin_resolver
-                WHERE max_minimise_count IS NOT NULL
-                GROUP BY max_minimise_count
+            f"""
+            WITH scoped_resolvers AS (
+                SELECT DISTINCT r.resolver_id
+                FROM resolver r
+                WHERE {family_sql}
+            ),
+            distribution AS (
+                SELECT q.max_minimise_count AS value, COUNT(*)::INTEGER AS count
+                FROM qmin_resolver q
+                JOIN scoped_resolvers scoped ON scoped.resolver_id = q.resolver_id
+                WHERE q.max_minimise_count IS NOT NULL
+                GROUP BY q.max_minimise_count
             )
             SELECT value, count,
                    ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
@@ -2506,12 +2593,18 @@ class DNSResilienceService:
             """
         )
         qmin_minimize_one_lab = self._fetchall(
-            """
-            WITH distribution AS (
-                SELECT minimize_one_lab AS value, COUNT(*)::INTEGER AS count
-                FROM qmin_resolver
-                WHERE minimize_one_lab IS NOT NULL
-                GROUP BY minimize_one_lab
+            f"""
+            WITH scoped_resolvers AS (
+                SELECT DISTINCT r.resolver_id
+                FROM resolver r
+                WHERE {family_sql}
+            ),
+            distribution AS (
+                SELECT q.minimize_one_lab AS value, COUNT(*)::INTEGER AS count
+                FROM qmin_resolver q
+                JOIN scoped_resolvers scoped ON scoped.resolver_id = q.resolver_id
+                WHERE q.minimize_one_lab IS NOT NULL
+                GROUP BY q.minimize_one_lab
             )
             SELECT value, count,
                    ROUND(count * 100.0 / NULLIF(SUM(count) OVER (), 0), 2)::DOUBLE PRECISION AS percent
@@ -2524,6 +2617,7 @@ class DNSResilienceService:
         enabled = row.get("qmin_enabled_count", 0) or 0
         risk = row.get("qmin_amplification_risk_count", 0) or 0
         return {
+            "ip_version": normalized_ip_version,
             "qmin_measured_count": measured,
             "qmin_enabled_count": enabled,
             "qmin_enabled_pc": self._pc(enabled, measured),
@@ -2534,16 +2628,23 @@ class DNSResilienceService:
         }
 
     @cached(ttl=900)
-    def get_global_protocol_summary(self) -> dict:
-        total_row = self._fetchone("SELECT COUNT(DISTINCT resolver_id)::INTEGER AS resolver_count FROM resolver") or {}
+    def get_global_protocol_summary(self, ip_version: int | str = "all") -> dict:
+        normalized_ip_version = self.normalize_ip_version(ip_version)
+        family_sql = self._resolver_family_sql("r", normalized_ip_version)
+        scoped_resolver_sql = f"SELECT DISTINCT r.resolver_id FROM resolver r WHERE {family_sql}"
+        total_row = self._fetchone(
+            f"SELECT COUNT(*)::INTEGER AS resolver_count FROM ({scoped_resolver_sql}) scoped"
+        ) or {}
         resolver_count = total_row.get("resolver_count", 0) or 0
         protocol_rows = self._fetchall(
-            """
-            WITH per_resolver_protocol AS (
-                SELECT resolver_id, protocol, BOOL_OR(supported)::BOOLEAN AS supported
-                FROM resolver_service
-                WHERE protocol IS NOT NULL AND TRIM(protocol) <> ''
-                GROUP BY resolver_id, protocol
+            f"""
+            WITH scoped_resolvers AS ({scoped_resolver_sql}),
+            per_resolver_protocol AS (
+                SELECT rs.resolver_id, rs.protocol, BOOL_OR(rs.supported)::BOOLEAN AS supported
+                FROM resolver_service rs
+                JOIN scoped_resolvers scoped ON scoped.resolver_id = rs.resolver_id
+                WHERE rs.protocol IS NOT NULL AND TRIM(rs.protocol) <> ''
+                GROUP BY rs.resolver_id, rs.protocol
             )
             SELECT
                 protocol,
@@ -2556,12 +2657,14 @@ class DNSResilienceService:
             """
         )
         port_rows = self._fetchall(
-            """
-            WITH per_resolver_port AS (
-                SELECT resolver_id, port, BOOL_OR(supported)::BOOLEAN AS supported
-                FROM resolver_service
-                WHERE port IS NOT NULL
-                GROUP BY resolver_id, port
+            f"""
+            WITH scoped_resolvers AS ({scoped_resolver_sql}),
+            per_resolver_port AS (
+                SELECT rs.resolver_id, rs.port, BOOL_OR(rs.supported)::BOOLEAN AS supported
+                FROM resolver_service rs
+                JOIN scoped_resolvers scoped ON scoped.resolver_id = rs.resolver_id
+                WHERE rs.port IS NOT NULL
+                GROUP BY rs.resolver_id, rs.port
             )
             SELECT
                 port,
@@ -2574,22 +2677,25 @@ class DNSResilienceService:
             """
         )
         service_rows = self._fetchall(
-            """
+            f"""
+            WITH scoped_resolvers AS ({scoped_resolver_sql})
             SELECT
-                protocol,
-                port,
-                COUNT(DISTINCT resolver_id)::INTEGER AS tested_count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE supported IS TRUE)::INTEGER AS count,
-                COUNT(DISTINCT resolver_id) FILTER (WHERE supported IS FALSE)::INTEGER AS unsupported_count
-            FROM resolver_service
-            WHERE protocol IS NOT NULL
-              AND TRIM(protocol) <> ''
-              AND port IS NOT NULL
-            GROUP BY protocol, port
-            ORDER BY count DESC, protocol, port
+                rs.protocol,
+                rs.port,
+                COUNT(DISTINCT rs.resolver_id)::INTEGER AS tested_count,
+                COUNT(DISTINCT rs.resolver_id) FILTER (WHERE rs.supported IS TRUE)::INTEGER AS count,
+                COUNT(DISTINCT rs.resolver_id) FILTER (WHERE rs.supported IS FALSE)::INTEGER AS unsupported_count
+            FROM resolver_service rs
+            JOIN scoped_resolvers scoped ON scoped.resolver_id = rs.resolver_id
+            WHERE rs.protocol IS NOT NULL
+              AND TRIM(rs.protocol) <> ''
+              AND rs.port IS NOT NULL
+            GROUP BY rs.protocol, rs.port
+            ORDER BY count DESC, rs.protocol, rs.port
             """
         )
         return {
+            "ip_version": normalized_ip_version,
             "resolver_count": resolver_count,
             "protocols": [
                 {

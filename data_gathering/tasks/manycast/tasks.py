@@ -23,11 +23,11 @@ def _external_data_dir() -> Path:
 
 
 @app.task(name="data_gathering.tasks.manycast.refresh")
-def refresh() -> dict[str, int]:
+def refresh() -> dict[str, object]:
     from data_gathering.tasks.manycast.load_anycast_table import load_anycast_table
 
     data_dir = _external_data_dir()
-    logger.info("Manycast: loading prefix data from {}", data_dir)
+    logger.info("Manycast: loading IPv4 and IPv6 prefix data from {}", data_dir)
     report = load_anycast_table(data_dir=data_dir)
     logger.info("Manycast: load complete: {}", report)
     return report

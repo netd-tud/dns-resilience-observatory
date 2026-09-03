@@ -10,11 +10,6 @@ odns_api_auth_token = <ODNS_API_AUTH_TOKEN>
 odns_per_page = 100000
 data_dir = /data
 
-[fetch_manycast_data_v4.py]
-logging_tag = fetch_manycast_data_v4.py
-manycast_api_url = https://manycast.net/api/v1/export/IPv4-latest.parquet
-data_dir = /data
-
 [load_odns_api.py]
 logging_tag = load_odns_api.py
 odns_default_protocol = udp

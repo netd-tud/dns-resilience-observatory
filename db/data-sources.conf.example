@@ -7,9 +7,9 @@ apikey_required = true
 
 [source.manycast]
 url = https://manycast.net/
-api_endpoint = https://manycast.net/api/v1/export/IPv4-latest.parquet
+api_endpoint = https://manycast.net/api/v1/export/
 documentation_endpoint = https://manycast.net/
-description = Manycast anycast prefix and backend evidence.
+description = Manycast IPv4 and IPv6 anycast prefix and backend evidence.
 apikey_required = false
 
 [source.caida-spoofer]
@@ -61,3 +61,10 @@ api_endpoint = https://stat.ripe.net/data/rpki-validation/data.json
 documentation_endpoint = https://stat.ripe.net/docs/data-api/api-endpoints/rpki-validation
 description = RIPEstat RPKI validation state for resolver prefix and origin ASN pairs.
 apikey_required = false
+
+[source.ipv6-hitlist-service]
+url = https://ipv6hitlist.github.io/
+api_endpoint = https://alcatraz.net.in.tum.de/ipv6-hitlist-service/registered/output/
+documentation_endpoint = https://ipv6hitlist.github.io/
+description = IPv6 Hitlist Service UDP/53 responder data.
+apikey_required = true

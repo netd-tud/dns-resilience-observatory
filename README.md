@@ -27,9 +27,10 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | `data_gathering/external_sources/caida/spoofer/spoofer.conf` | CAIDA Spoofer fetcher URL, paging, and data directory. |
 | `data_gathering/tasks/apnic_dnssec/apnic_dnssec.conf` | APNIC DNSSEC task URLs, worker counts, batch sizes, and data directory. |
 | `data_gathering/tasks/caida_spoofer/caida_spoofer.conf` | CAIDA Spoofer task fetch/import settings. |
-| `data_gathering/tasks/manycast/manycast.conf` | Manycast task logging and data directory settings. |
+| `data_gathering/tasks/manycast/manycast.conf` | Manycast IPv4/IPv6 export URLs, task logging, and data directory settings. |
 | `data_gathering/tasks/manrs/manrs.conf` | MANRS API key, summary URL, request limits, retries, workers, and upsert batch size. |
-| `data_gathering/tasks/odns_v4/odns_v4.conf` | ODNS API, Manycast fetch, and ODNS import settings. |
+| `data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf` | IPv6 Hitlist Service username/password, output URL, storage paths, and request timeout. |
+| `data_gathering/tasks/odns_v4/odns_v4.conf` | ODNS API and ODNS import settings. |
 | `data_gathering/tasks/rpki/rpki.conf` | RIPEstat RPKI URL, request limits, retries, workers, and upsert batch size. |
 | `data_gathering/tasks/webpage_resolver/webpage_resolver.conf` | Web resolver URL import definitions and column mappings. |
 | `measurements/tasks/verify_resolvers/verify_resolvers.conf` | Active resolver verification measurement using ZDNS. |
@@ -43,6 +44,7 @@ Copy examples before running services:
 ```bash
 cp .env.example .env
 cp data_gathering/tasks/manrs/manrs.conf.example data_gathering/tasks/manrs/manrs.conf
+cp data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf.example data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
 cp data_gathering/tasks/rpki/rpki.conf.example data_gathering/tasks/rpki/rpki.conf
 cp measurements/tasks/verify_resolvers/verify_resolvers.conf.example measurements/tasks/verify_resolvers/verify_resolvers.conf
@@ -56,6 +58,7 @@ Replace these placeholders for setup:
 - `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, and `DJANGO_SUPERUSER_PASSWORD`; adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
 - `data_gathering/tasks/manrs/manrs.conf`: replace `<MANRS_API_KEY>` with the MANRS Observatory API key, then adjust the API URL, request rate, concurrency, retry, timeout, and batch settings when needed. This runtime file is ignored by Git and mounted read-only into the data-gathering containers.
+- `data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf`: replace `<IPV6_HITLIST_USERNAME>` and `<IPV6_HITLIST_PASSWORD>` with the registration credentials. The credentials remain in this ignored runtime file and are sent with HTTP Basic authentication.
 - `data_gathering/tasks/rpki/rpki.conf`: adjust the public API URL, request rate, concurrency, retry, timeout, and batch settings when needed.
 - `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
 - `measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf`: selects IPv6 resolver addresses and queries the configured domain's AAAA record using IPv6 transport; the default query name is `rr-mirror.research6.nawrocki.berlin`.
@@ -340,6 +343,9 @@ docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.webpage_resolver.refresh
 
 docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.ipv6_hitlist.refresh
+
+docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh
 
 docker compose run --rm data-gathering \
@@ -420,6 +426,58 @@ force = false
 
 The task name is `data_gathering.tasks.webpage_resolver.refresh`.
 
+### IPv6 Hitlist Resolver Data
+
+The IPv6 Hitlist refresh reads its registration credentials from
+`data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf`. It lists the authenticated output index,
+selects the newest `YYYY-MM/` directory, and downloads its newest
+`YYYY-MM-DD-udp53.csv.xz` file. If the newest directory has no matching file, it checks the
+preceding listed month. The parser streams the compressed CSV and retains only rows where
+`success == 1` whose hex-encoded `data` field is a structurally valid DNS response with the
+complete base/EDNS response code `NOERROR`. It produces the four importer fields `resolver_ip`,
+`port`, `protocol`, and `supported`.
+
+The importer upserts these addresses as verified public recursive DNS resolvers and stores each
+observed service in `resolver_service`. Its normal protocol normalization records the source
+classification `udp` as `doudp`. A successful import also updates the source's
+`last_retrieved_ts`.
+
+Run the complete download/parse/import task with:
+
+```bash
+docker compose run --rm data-gathering python3 db/data_source.py
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.ipv6_hitlist.refresh
+```
+
+The parser and importer can also be invoked separately:
+
+```bash
+docker compose run --rm data-gathering \
+	python3 data_gathering/tasks/ipv6_hitlist/parse_ipv6_hitlist.py \
+	/data/external/ipv6-hitlist/2026-08/2026-08-22-udp53.csv.xz \
+	--output /data/interim/ipv6-hitlist/2026-08/2026-08-22-udp53.parsed.csv
+
+docker compose run --rm data-gathering \
+	python3 data_gathering/imports/ipv6_hitlist/import_ipv6_hitlist.py \
+	/data/interim/ipv6-hitlist/2026-08/2026-08-22-udp53.parsed.csv \
+	--no-dry-run
+```
+
+To download the latest file and export every deduplicated IPv6 `saddr`—one plain address per line,
+without a header or prefix length—run:
+
+```bash
+docker compose run --rm data-gathering \
+	python3 data_gathering/tasks/ipv6_hitlist/export_ipv6_resolver_ips.py
+```
+
+This standalone export does not inspect `success`, DNS RCODE, or the `data` field. Those filters
+remain exclusive to database ingestion. The output is written to
+`/data/exports/resolver-ipv6-YYYY-MM-DD.txt`, using the measurement date from the selected Hitlist
+filename. On the host this is available below `data/exports/`.
+
 ## API
 
 Note: both ASGI and WSGI entry points are included; use ASGI for async/WebSockets and WSGI for traditional sync deployments.
@@ -498,7 +556,7 @@ VALUES
     (
         'manycast',
         'https://manycast.net/',
-        'https://manycast.net/api/v1/export/IPv4-latest.parquet',
+        'https://manycast.net/api/v1/export/',
         'https://manycast.net/',
         FALSE
     ),
@@ -529,8 +587,8 @@ DO UPDATE SET
 | Source | Used for | API endpoint | API key required |
 | --- | --- | --- | --- |
 | `odns-api` | Resolver, forwarder, and ODNS-derived anycast backend evidence | `https://odns-data.netd.cs.tu-dresden.de/api/v2/ODNSQuery/GetDnsEntries` | Yes |
-| `manycast` | Anycast prefix, ASN, and country-location evidence | `https://manycast.net/api/v1/export/IPv4-latest.parquet` | No |
-| `caida-spoofer` | Prefix-level spoofing observations | `https://api.spoofer.caida.org/sessions` | No |
+| `manycast` | IPv4 and IPv6 anycast prefix, ASN, and country-location evidence | `https://manycast.net/api/v1/export/` | No |
+| `caida-spoofer` | IPv4 and IPv6 prefix-level spoofing observations | `https://api.spoofer.caida.org/sessions` | No |
 
 ## Importers
 

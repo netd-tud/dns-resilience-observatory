@@ -15,5 +15,12 @@ TASK_NAMES = ["data_gathering.tasks.caida_spoofer.refresh"]
 @app.task(name="data_gathering.tasks.caida_spoofer.refresh")
 def refresh() -> dict[str, int | str]:
     frame = update_spoofing_table()
-    logger.info("CAIDA Spoofer: imported {} spoofing prefixes", frame.height)
-    return {"rows": frame.height}
+    ipv6_rows = frame.filter(frame["prefix"].str.contains(":")).height
+    ipv4_rows = frame.height - ipv6_rows
+    logger.info(
+        "CAIDA Spoofer: imported {} spoofing prefixes (IPv4={}, IPv6={})",
+        frame.height,
+        ipv4_rows,
+        ipv6_rows,
+    )
+    return {"rows": frame.height, "ipv4_rows": ipv4_rows, "ipv6_rows": ipv6_rows}
