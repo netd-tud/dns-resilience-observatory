@@ -28,9 +28,12 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | `data_gathering/tasks/apnic_dnssec/apnic_dnssec.conf` | APNIC DNSSEC task URLs, worker counts, batch sizes, and data directory. |
 | `data_gathering/tasks/caida_spoofer/caida_spoofer.conf` | CAIDA Spoofer task fetch/import settings. |
 | `data_gathering/tasks/manycast/manycast.conf` | Manycast task logging and data directory settings. |
+| `data_gathering/tasks/manrs/manrs.conf` | MANRS API key, summary URL, request limits, retries, workers, and upsert batch size. |
 | `data_gathering/tasks/odns_v4/odns_v4.conf` | ODNS API, Manycast fetch, and ODNS import settings. |
+| `data_gathering/tasks/rpki/rpki.conf` | RIPEstat RPKI URL, request limits, retries, workers, and upsert batch size. |
 | `data_gathering/tasks/webpage_resolver/webpage_resolver.conf` | Web resolver URL import definitions and column mappings. |
 | `measurements/tasks/verify_resolvers/verify_resolvers.conf` | Active resolver verification measurement using ZDNS. |
+| `measurements/tasks/dnssec_validation/dnssec_validation.conf` | Active per-resolver DNSSEC validation measurement using ZDNS. |
 | `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf` | Resolver metainformation measurement using ZDNS PTR, SVCB, A, AAAA, and HTTPS lookups. |
 | `db/data-sources.conf` | Source metadata inserted into the `data_source` table. |
 
@@ -38,16 +41,22 @@ Copy examples before running services:
 
 ```bash
 cp .env.example .env
+cp data_gathering/tasks/manrs/manrs.conf.example data_gathering/tasks/manrs/manrs.conf
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
+cp data_gathering/tasks/rpki/rpki.conf.example data_gathering/tasks/rpki/rpki.conf
 cp measurements/tasks/verify_resolvers/verify_resolvers.conf.example measurements/tasks/verify_resolvers/verify_resolvers.conf
+cp measurements/tasks/dnssec_validation/dnssec_validation.conf.example measurements/tasks/dnssec_validation/dnssec_validation.conf
 cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.example measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf
 ```
 
 Replace these placeholders for setup:
 
-- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, `DJANGO_SUPERUSER_PASSWORD`, and adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
+- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, and `DJANGO_SUPERUSER_PASSWORD`; adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
+- `data_gathering/tasks/manrs/manrs.conf`: replace `<MANRS_API_KEY>` with the MANRS Observatory API key, then adjust the API URL, request rate, concurrency, retry, timeout, and batch settings when needed. This runtime file is ignored by Git and mounted read-only into the data-gathering containers.
+- `data_gathering/tasks/rpki/rpki.conf`: adjust the public API URL, request rate, concurrency, retry, timeout, and batch settings when needed.
 - `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
+- `measurements/tasks/dnssec_validation/dnssec_validation.conf`: adjust ZDNS execution settings and resolver filters; keep `domain = dnssec-failed.org` for the validation heuristic.
 - `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf`: adjust `modules` (`svcb`, `svcb,ptr,a`, or `svcb,ptr,a,aaaa,https`), `threads`, resolver filters, and `recursive_name_servers` if needed.
 - Task `.conf` files: adjust `data_dir`, worker counts, fetch windows, URLs, and source mappings only if your deployment differs from the defaults.
 - `db/data-sources.conf`: update source metadata only when adding or changing data sources.
@@ -207,6 +216,31 @@ docker compose exec measurements \
 	celery -A measurements.celery_app call measurements.tasks.verify_resolvers.run --queue measurements
 ```
 
+Per-resolver DNSSEC validation queries `dnssec-failed.org`. SERVFAIL is recorded as validating,
+another DNS response as non-validating, and missing or invalid responses as unknown. The task writes
+`resolver_ip,dnssec-validation` CSV output and imports every outcome into the database:
+
+```bash
+docker compose exec api python db/apply_schema.py
+docker compose exec api python db/data_source.py
+docker compose exec measurements \
+	celery -A measurements.celery_app call measurements.tasks.dnssec_validation.run --queue measurements
+```
+
+An externally produced raw ZDNS JSONL file can be imported through the same historical measurement
+tables. Put both files below `data/` and supply the original resolver input when available so targets
+without a JSONL result are retained as unknown:
+
+```bash
+docker compose exec measurements \
+	python -m measurements.scripts.import_dnssec_validation \
+	/app/data/measurements/dnssec_validation/my-results.jsonl \
+	--resolver-input /app/data/resolvers.txt
+```
+
+The importer derives an idempotent run key from the input contents, so running the same command again
+does not increment the historical counters twice.
+
 Resolver metainformation measurement:
 
 ```bash
@@ -222,6 +256,7 @@ The `measurements` Docker image builds this binary automatically. For local runs
 ```bash
 git submodule update --init --recursive
 cd measurements/tools/zdns
+patch --forward -p1 < ../../patches/zdns-target-nameserver.patch
 make
 cd ../../..
 ```
@@ -289,6 +324,12 @@ docker compose run --rm data-gathering \
 
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.webpage_resolver.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.rpki.refresh
 ```
 
 5. Manual trigger (single task example):
@@ -296,6 +337,48 @@ docker compose run --rm data-gathering \
 ```bash
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.<topic>.<task_name>
+```
+
+### MANRS Readiness and RPKI
+
+The MANRS task reads `manrs_api_key` from `data_gathering/tasks/manrs/manrs.conf` and authenticates
+with the API's Bearer scheme. It queries the current-month `/api/v2/scores/summary` response
+separately for every distinct ASN and country represented by recursive DNS resolvers. Resolver
+countries are stored as ISO alpha-3 codes; the task converts them to alpha-2 economy codes for the
+MANRS request and retains alpha-3 codes in `manrs_country`. It stores the five readiness
+scores and trends, plus a readiness label per ASN or ready-ASN share per country. Scores and shares
+are normalized to fractions from 0 to 1.
+
+The RIPEstat task queries every distinct resolver BGP prefix/origin-ASN pair and stores its current
+`valid`, `unknown`, `invalid_asn`, or `invalid_length` state. Successful API responses are upserted;
+failed requests leave the previous row and timestamp unchanged. Both tasks run through the normal
+daily data-gathering dispatcher and report target, fetched, upserted, and failed counts.
+
+Run the tasks independently with:
+
+```bash
+docker compose run --rm data-gathering python3 db/data_source.py
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh
+
+# Countries only
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh \
+	--kwargs='{"scope":"country"}'
+
+# ASNs only
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh \
+	--kwargs='{"scope":"asn"}'
+
+# Explicitly request both (also the default used by the scheduler)
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.manrs.refresh \
+	--kwargs='{"scope":"both"}'
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.rpki.refresh
 ```
 
 ### Webpage Resolver URLs
@@ -346,22 +429,26 @@ All list-style endpoints accept `?limit=N` with `1 <= N <= 1000` and return matc
 | `GET /api/dns-resilience/resolver/{resolver_ip}/anycast` | Anycast prefix coverage for one resolver IP. |
 | `GET /api/dns-resilience/resolver/{resolver_ip}/anycast/sites` | Anycast backend countries and ASNs for one resolver IP. |
 | `GET /api/dns-resilience/resolver/{resolver_ip}/spoofing` | Spoofing prefix data containing one resolver IP. |
+| `GET /api/dns-resilience/resolver/{resolver_ip}/manrs` | MANRS readiness inherited from the ASN mapped to one resolver IP. |
 | `GET /api/dns-resilience/ASN/{asn}/qmin` | QMIN aggregate data for an ASN. |
 | `GET /api/dns-resilience/ASN/{asn}/anycast` | Anycast prefix coverage for an ASN. |
 | `GET /api/dns-resilience/ASN/{asn}/anycast/sites` | Anycast backend countries and ASNs for an ASN. |
 | `GET /api/dns-resilience/ASN/{asn}/spoofing` | Spoofing aggregate data for an ASN. |
+| `GET /api/dns-resilience/ASN/{asn}/manrs` | MANRS readiness score for an ASN. |
 | `GET /api/dns-resilience/country/{country}/qmin` | QMIN aggregate data for a country. |
 | `GET /api/dns-resilience/country/{country}/anycast` | Anycast prefix coverage for a country. |
 | `GET /api/dns-resilience/country/{country}/anycast/sites` | Anycast backend countries and ASNs for a country. |
 | `GET /api/dns-resilience/country/{country}/spoofing` | Spoofing aggregate data for a country. |
 | `GET /api/dns-resilience/country/{country}/dnssec` | DNSSEC validation data for a country. |
+| `GET /api/dns-resilience/country/{country}/manrs` | MANRS readiness score for a country. |
 | `GET /api/dns-resilience/global/ipv4` | Global IPv4 recursive resolver count and public share. |
 | `GET /api/dns-resilience/global/ipv6` | Global IPv6 recursive resolver count and public share. |
 | `GET /api/dns-resilience/global/dual-stack` | Number of resolver IDs with both IPv4 and IPv6 addresses. |
 | `GET /api/dns-resilience/global/scope` | Global observatory coverage: resolver count, unique ASNs, unique country codes, latest resolver observation. |
+| `GET /api/dns-resilience/global/practice-details/manrs/{entity_type}/{scope}` | Distinct ASN/country total, MANRS coverage, and average readiness for `open` or `closed` recursive DNS resolver deployments. |
 | `GET /api/dns-resilience/global/anycast` | Global resolver anycast count and top resolver IPs by anycast backend sites. |
 | `GET /api/dns-resilience/global/qmin` | Global QMIN measurement summary and parameter distributions. |
-| `GET /api/dns-resilience/global/protocols` | Resolver service usage by protocol, port, and protocol-port combination. |
+| `GET /api/dns-resilience/global/protocols` | Resolver service tests by protocol, port, and protocol-port combination, including tested, supported, and explicitly unsupported counts. |
 | `GET /api/dns-resilience/global/spoofing` | Resolver IPs located in networks that allow spoofing. |
 | `GET /api/dns-resilience/global/countries` | Resolver deployment by country code, including coordinates for the world map and top 10 countries. |
 | `GET /api/dns-resilience/global/asns` | Top 10 ASNs by resolver count. |
@@ -453,7 +540,7 @@ Modules and required mapped fields:
 | `asn` | `ip`, `asn` | `source`, `last_update_ts` |
 | `prefix` | `ip`, `prefix` | `source`, `last_update_ts` |
 | `location` | `ip`, `country` | `city`, `source`, `last_update_ts` |
-| `protocol` | `ip`, `protocol` | `source`, `last_update_ts` |
+| `protocol` | `ip`, `protocol` | `port`, `supported`, `source`, `last_update_ts` |
 | `dohpath` | `ip`, `dohpath` | `source`, `last_update_ts` |
 | `org` | `ip`, `org` | `source`, `last_update_ts` |
 | `domain` | `ip`, `domain` | `source`, `last_update_ts` |
@@ -462,7 +549,7 @@ Example:
 
 ```bash
 python data_gathering/imports/resolver/import_resolvers.py data/resolvers.pq \
-    --mapping "ip:resolver_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol" \
+    --mapping "ip:resolver_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol,port:port,supported:supported" \
     --modules "resolver,asn,prefix,location,protocol" \
     --no-dry-run
 ```
@@ -479,7 +566,7 @@ Modules and required mapped fields:
 | `asn` | `ip`, `asn` | `source`, `last_update_ts` |
 | `prefix` | `ip`, `prefix` | `source`, `last_update_ts` |
 | `location` | `ip`, `country` | `city`, `source`, `last_update_ts` |
-| `protocol` | `ip`, `protocol` | `source`, `last_update_ts` |
+| `protocol` | `ip`, `protocol` | `supported`, `source`, `last_update_ts` |
 | `endpoint` | `ip`, `endpoint` | `source`, `last_update_ts` |
 | `org` | `ip`, `org` | `source`, `last_update_ts` |
 | `domain` | `ip`, `domain` | `source`, `last_update_ts` |
@@ -489,10 +576,15 @@ Example:
 
 ```bash
 python data_gathering/imports/forwarder/import_forwarders.py data/forwarders.pq \
-    --mapping "ip:forwarder_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol,upstream_ip:resolver_ip" \
+    --mapping "ip:forwarder_ip,is_public:is_public,source:source,last_update_ts:observed_at,asn:asn,prefix:bgp_prefix,country:country,protocol:protocol,supported:supported,upstream_ip:resolver_ip" \
     --modules "forwarder,asn,prefix,location,protocol,upstream" \
     --no-dry-run
 ```
+
+For protocol imports, `supported=true` means the test succeeded and `supported=false` means the
+protocol was explicitly tested but failed. If `supported` is not mapped, the importer defaults to
+`true` for compatibility with discovery-only data sources. No `resolver_service` or
+`forwarder_protocol` row means that protocol has not been tested for that resolver or forwarder.
 
 #### Anycast Importer
 

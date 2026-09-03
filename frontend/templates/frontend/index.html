@@ -1,24 +1,1759 @@
 {% extends "frontend/base.html" %}
 
-{% block banner %}
-    <section class="banner">
-        <div class="banner-inner">
-            <h1>DNS Resilience Observatory</h1>
-        </div>
-    </section>
-{% endblock %}
+{% block title %}DNS Resilience Observatory{% endblock %}
 
 {% block content %}
-    <main class="content home-content">
-        <section class="start-view">
-            <a class="start-tile kindns-tile" href="http://103.154.234.110:8888">
-                <span class="start-kicker">KINDNS</span>
-                <span class="start-title">KINDNS TLD Practice Vizualizer</span>
-            </a>
-            <a class="start-tile resolver-tile" href="/resolver.html">
-                <span class="start-kicker">Observatory</span>
-                <span class="start-title">Resilience of Recursive DNS Resolver</span>
-            </a>
+    <main class="observatory-home">
+        <section class="home-hero" aria-labelledby="home-title">
+            <div class="home-shell home-hero-grid">
+                <div class="home-hero-copy">
+                    <h1 id="home-title">Recursive DNS Resolver Resilience: Analyzing The Deployment of Measureable KINDNS Practices</h1>
+                    <p class="home-lead">
+                        We observe recursive DNS infrastructure and measure the deployment of practices
+                        that strengthen security, privacy, and operational resilience across the Internet.
+                    </p>
+                    <div class="home-actions">
+                        <a class="home-button home-button-secondary" href="/resolver.html">Deployment Analysis</a>
+                        <a class="home-button home-button-secondary" href="/search.html">Resolver Search</a>
+                        <a class="home-button home-button-secondary" href="/compare.html">Compare</a>
+                        <a class="home-button home-button-secondary" href="#practices">Practices</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="practice-section" id="practices" aria-labelledby="practices-title">
+            <div class="home-shell">
+                <div class="resolver-hero-grid" aria-label="Current resolver practice deployment">
+                    <article class="resolver-hero-card" data-resolver-scope="open" aria-busy="true">
+                        <header class="resolver-hero-heading">
+                            <p class="home-eyebrow home-eyebrow-dark">Current Deployment</p>
+                            <h2>Open Recursive DNS Resolver <span class="resolver-hero-count is-loading" data-resolver-count>(Loading…)</span></h2>
+                            <p class="resolver-hero-description">An <code>open</code> DNS resolver accepts DNS queries from any host on the Internet (intentionally or not). The common term <code>public</code> is a subclass of open resolvers and comprises intentionally globally exposed DNS services such as the DNS service of Google or Cloudflare.</p>
+                        </header>
+                        <div class="resolver-gauge-grid">
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="dnssec_validating_pc" style="--value: 0" role="img" aria-label="DNSSEC Validation: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>DNSSEC Validation</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="anycast_pc" style="--value: 0" role="img" aria-label="Anycast Enabled: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>Anycast Enabled</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="qmin_safe_pc" style="--value: 0" role="img" aria-label="QMIN Enabled: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>
+                                    QMIN Enabled
+                                    <span class="metric-info" tabindex="0" aria-label="More information about QMIN enabled">i
+                                        <span class="metric-tooltip" role="tooltip">QMIN is enabled and the measured maximum minimisation count is 10 or fewer, avoiding excessive iterations.</span>
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="dual_stack_pc" style="--value: 0" role="img" aria-label="Dual Stack Connectivity: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>Dual Stack Connectivity</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="secure_protocol_pc" style="--value: 0" role="img" aria-label="Secure Protocols: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>
+                                    Secure Protocols
+                                    <span class="metric-info" tabindex="0" aria-label="More information about secure protocols">i
+                                        <span class="metric-tooltip" role="tooltip">Includes DNS over HTTPS (DoH), DNS over QUIC (DoQ), and DNS over TLS (DoT).</span>
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="resolver-hero-card" data-resolver-scope="closed" aria-busy="true">
+                        <header class="resolver-hero-heading">
+                            <p class="home-eyebrow home-eyebrow-dark">Current Deployment</p>
+                            <h2>Closed Recursive DNS Resolver <span class="resolver-hero-count is-loading" data-resolver-count>(Loading…)</span></h2>
+                            <p class="resolver-hero-description">We denote a resolver as <code>closed</code> if it is not globally reachable from any host, but we find these resolvers to be used by DNS forwarders or configured as probe resolvers on external measurement probes such as RIPE Atlas.</p>
+                        </header>
+                        <div class="resolver-gauge-grid">
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="dnssec_validating_pc" style="--value: 0" role="img" aria-label="DNSSEC Validation: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>DNSSEC Validation</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="anycast_pc" style="--value: 0" role="img" aria-label="Anycast Enabled: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>Anycast Enabled</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="qmin_safe_pc" style="--value: 0" role="img" aria-label="QMIN Enabled: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>
+                                    QMIN Enabled
+                                    <span class="metric-info" tabindex="0" aria-label="More information about QMIN enabled">i
+                                        <span class="metric-tooltip" role="tooltip">QMIN is enabled and the measured maximum minimisation count is 10 or fewer, avoiding excessive iterations.</span>
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="dual_stack_pc" style="--value: 0" role="img" aria-label="Dual Stack Connectivity: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>Dual Stack Connectivity</p>
+                            </div>
+                            <div class="resolver-gauge-item">
+                                <div class="resolver-speedometer is-loading" data-metric="secure_protocol_pc" style="--value: 0" role="img" aria-label="Secure Protocols: loading">
+                                    <div class="resolver-speedometer-arc"></div>
+                                    <strong>…</strong>
+                                </div>
+                                <p>
+                                    Support for Secure Protocols
+                                    <span class="metric-info" tabindex="0" aria-label="More information about secure protocols">i
+                                        <span class="metric-tooltip" role="tooltip">Includes DNS over HTTPS (DoH), DNS over QUIC (DoQ), and DNS over TLS (DoT).</span>
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+
+                <section class="practice-history" aria-labelledby="practice-history-title">
+                    <div class="practice-history-heading">
+                        <div>
+                            <p class="home-eyebrow home-eyebrow-dark">Deployment over time</p>
+                            <h3 id="practice-history-title">Adoption of Measurable Practices</h3>
+                        </div>
+                        <span class="illustrative-data-label">Illustrative data</span>
+                    </div>
+
+                    <div class="history-chart-wrap">
+                        <svg class="history-chart" viewBox="0 0 1000 410" role="img" aria-labelledby="history-chart-title history-chart-description">
+                            <title id="history-chart-title">Illustrative KINDNS practice deployment from 2022 to 2026</title>
+                            <desc id="history-chart-description">Five example lines show increasing deployment percentages for DNSSEC, QMIN, BCP38, MANRS, and geographical diversity.</desc>
+
+                            <g class="chart-grid">
+                                <line x1="120" y1="60" x2="920" y2="60"></line>
+                                <line x1="120" y1="130" x2="920" y2="130"></line>
+                                <line x1="120" y1="200" x2="920" y2="200"></line>
+                                <line x1="120" y1="270" x2="920" y2="270"></line>
+                                <line x1="120" y1="340" x2="920" y2="340"></line>
+                            </g>
+                            <g class="chart-axis-labels">
+                                <text x="98" y="65">100%</text>
+                                <text x="98" y="135">75%</text>
+                                <text x="98" y="205">50%</text>
+                                <text x="98" y="275">25%</text>
+                                <text x="98" y="345">0%</text>
+                                <text x="120" y="378">2022</text>
+                                <text x="320" y="378">2023</text>
+                                <text x="520" y="378">2024</text>
+                                <text x="720" y="378">2025</text>
+                                <text x="920" y="378">2026</text>
+                            </g>
+
+                            <polyline class="chart-line chart-line-dnssec" points="120,194 320,178 520,158 720,138 920,119"></polyline>
+                            <polyline class="chart-line chart-line-qmin" points="120,290 320,262 520,231 720,194 920,158"></polyline>
+                            <polyline class="chart-line chart-line-bcp38" points="120,169 320,161 520,150 720,138 920,127"></polyline>
+                            <polyline class="chart-line chart-line-manrs" points="120,264 320,245 520,222 720,203 920,180"></polyline>
+                            <polyline class="chart-line chart-line-diversity" points="120,217 320,206 520,186 720,169 920,147"></polyline>
+                        </svg>
+                    </div>
+
+                    <div class="history-legend" aria-hidden="true">
+                        <span><i class="legend-dnssec"></i>DNSSEC Validation</span>
+                        <span><i class="legend-qmin"></i>QMIN Implementation</span>
+                        <span><i class="legend-bcp38"></i>BCP38 Compliance</span>
+                        <span><i class="legend-manrs"></i>MANRS Compliance</span>
+                        <span><i class="legend-diversity"></i>Geographical Diversity</span>
+                    </div>
+
+                    <div class="history-coming-soon" role="status" aria-label="Historical deployment data coming soon">
+                        <span>Coming soon!</span>
+                    </div>
+                </section>
+
+                <div class="practice-heading">
+                    <div>
+                        <p class="home-eyebrow home-eyebrow-dark">What we measure</p>
+                        <h2 id="practices-title">Measurable KINDNS Practices</h2>
+                    </div>
+                </div>
+
+                <ol class="practice-grid">
+                    <li class="practice-card practice-card-expandable" style="--practice-index: 0" data-practice-card="dnssec">
+                        <span class="practice-number">01</span>
+                        <div>
+                            <h3>DNSSEC Validation</h3>
+                            <p>Whether recursive resolvers authenticate signed DNS responses and protect users from forged data.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Integrity</span>
+                            <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="dnssec-practice-details">
+                                <span aria-hidden="true">+</span>
+                                <span class="visually-hidden">Show DNSSEC validation details</span>
+                            </button>
+                        </div>
+                        <div class="practice-detail-panel" id="dnssec-practice-details" hidden>
+                            <div class="practice-detail-loading" data-detail-loading role="status">
+                                <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                Loading DNSSEC validation details…
+                            </div>
+                            <div class="practice-detail-content" data-detail-content hidden>
+                                <div class="practice-detail-gauge-grid practice-detail-gauge-grid-three">
+                                    <article class="practice-detail-gauge" data-dnssec-scope="open">
+                                        <div class="practice-segmented-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Open recursive DNS resolvers: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Open Recursive DNS Resolvers</h4>
+                                    </article>
+                                    <article class="practice-detail-gauge" data-dnssec-scope="closed">
+                                        <div class="practice-segmented-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Closed recursive DNS resolvers: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Closed Recursive DNS Resolvers</h4>
+                                    </article>
+                                    <article class="practice-detail-gauge" data-dnssec-scope="country">
+                                        <div class="practice-segmented-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Average APNIC country DNSSEC validation: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Country Average</h4>
+                                    </article>
+                                </div>
+                                <div class="practice-segment-legend" aria-label="DNSSEC validation legend">
+                                    <span><i class="practice-legend-positive"></i>Validating (percentage shown)</span>
+                                    <span><i class="practice-legend-negative"></i>Not validating</span>
+                                    <span><i class="practice-legend-unknown"></i>Unknown</span>
+                                </div>
+                                <div class="practice-methodology">
+                                    <h4>How we measure and collect data</h4>
+                                    <p>Country data comes from <a href="https://stats.labs.apnic.net/dnssec" target="_blank" rel="noopener noreferrer">APNIC Labs DNSSEC measurements</a>. The country gauge presents the mean validation percentage across available country observations; indeterminate validation is shown as unknown.</p>
+                                    <p>For recursive DNS resolver data, we send a simple A-record query for <code>dnssec-failed.org</code> to each known recursive DNS resolver. A <code>SERVFAIL</code> response indicates DNSSEC validation is enabled, while a <code>NOERROR</code> response indicates that it is not enabled.
+                                        Non-replying recursive DNS resolvers are marked as unknown. <code>dnssec-failed.org</code> is a domain operated by COMCAST with a deliberately broken DNSSEC signature, so a validating resolver will reject the response.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="practice-card practice-card-expandable" style="--practice-index: 1" data-practice-card="qmin">
+                        <span class="practice-number">02</span>
+                        <div>
+                            <h3>QMIN Implementation</h3>
+                            <p>Whether resolvers minimize the query name disclosed at each step of the DNS resolution process.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Privacy</span>
+                            <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="qmin-practice-details">
+                                <span aria-hidden="true">+</span>
+                                <span class="visually-hidden">Show QMIN implementation details</span>
+                            </button>
+                        </div>
+                        <div class="practice-detail-panel" id="qmin-practice-details" hidden>
+                            <div class="practice-detail-loading" data-detail-loading role="status">
+                                <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                Loading QMIN implementation details…
+                            </div>
+                            <div class="practice-detail-content" data-detail-content hidden>
+                                <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                    <article class="practice-detail-gauge" data-qmin-scope="open">
+                                        <div class="practice-segmented-speedometer is-loading" style="--positive: 0; --negative: 0; --not-implemented: 0; --unstable: 0" role="img" aria-label="Open recursive DNS resolver QMIN implementation: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Open Recursive DNS Resolvers</h4>
+                                    </article>
+                                    <article class="practice-detail-gauge" data-qmin-scope="closed">
+                                        <div class="practice-segmented-speedometer is-loading" style="--positive: 0; --negative: 0; --not-implemented: 0; --unstable: 0" role="img" aria-label="Closed recursive DNS resolver QMIN implementation: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Closed Recursive DNS Resolvers</h4>
+                                    </article>
+                                </div>
+                                <div class="practice-segment-legend" aria-label="QMIN implementation legend">
+                                    <span><i class="practice-legend-positive"></i>Properly enabled (percentage shown)</span>
+                                    <span><i class="practice-legend-negative"></i>Too many queries possible</span>
+                                    <span><i class="practice-legend-not-implemented"></i>Not implemented</span>
+                                    <span>
+                                        <i class="practice-legend-unstable"></i>Unstable
+                                        <span class="metric-info" tabindex="0" aria-label="More information about unstable QMIN measurements">i
+                                            <span class="metric-tooltip" role="tooltip">Unstable means that repeated measurements of the same recursive DNS resolver produced different QMIN behavior.</span>
+                                        </span>
+                                    </span>
+                                    <span><i class="practice-legend-unknown"></i>Unknown</span>
+                                </div>
+                                <div class="qmin-distribution-grid">
+                                    <article class="qmin-distribution-card">
+                                        <h4>Most Frequent <code>max_minimise_count</code></h4>
+                                        <div class="qmin-detail-bars" data-qmin-distribution="max"></div>
+                                    </article>
+                                    <article class="qmin-distribution-card">
+                                        <h4>Most Frequent <code>minimize_one_lab</code></h4>
+                                        <div class="qmin-detail-bars" data-qmin-distribution="one-lab"></div>
+                                    </article>
+                                </div>
+                                <div class="practice-methodology">
+                                    <h4>How we measure and collect data</h4>
+                                    <p>We run active QMIN measurements to observe the query-name sequence generated by each tested recursive DNS resolver. QMIN is classified as properly enabled when the measurement reports QMIN and no more than 10 minimization iterations are observed.
+                                        More than 10 iterations is highlighted as a potential excessive-query and amplification risk. Measurements explicitly reporting no QMIN are classified as not implemented. Unstable means that repeated measurements produced different QMIN behavior; missing or otherwise inconclusive measurements are shown as unknown.</p>
+                                    <p><code>max_minimise_count</code> is the maximum number of minimization queries observed for a tested recursive DNS resolver, while <code>minimize_one_lab</code> records how many minimization steps reduced the query name by one label.</p>
+                                    <p>The horizontal bars show the three most frequently observed values for <code>max_minimise_count</code> and <code>minimize_one_lab</code> across measured recursive DNS resolvers.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="practice-card practice-card-expandable" style="--practice-index: 2" data-practice-card="bcp38">
+                        <span class="practice-number">03</span>
+                        <div>
+                            <h3>BCP38 Compliance</h3>
+                            <p>Whether networks apply source-address validation to limit spoofed traffic and reflection attacks.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Anti-spoofing</span>
+                            <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="bcp38-practice-details">
+                                <span aria-hidden="true">+</span>
+                                <span class="visually-hidden">Show BCP38 compliance details</span>
+                            </button>
+                        </div>
+                        <div class="practice-detail-panel" id="bcp38-practice-details" hidden>
+                            <div class="practice-detail-loading" data-detail-loading role="status">
+                                <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                Loading BCP38 compliance details…
+                            </div>
+                            <div class="practice-detail-content" data-detail-content hidden>
+                                <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                    <article class="practice-detail-gauge" data-bcp38-scope="open">
+                                        <div class="practice-segmented-speedometer bcp38-segmented-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Open recursive DNS resolver BCP38 evidence: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Open Recursive DNS Resolvers</h4>
+                                    </article>
+                                    <article class="practice-detail-gauge" data-bcp38-scope="closed">
+                                        <div class="practice-segmented-speedometer bcp38-segmented-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Closed recursive DNS resolver BCP38 evidence: loading">
+                                            <div class="practice-segmented-speedometer-arc"></div>
+                                            <strong data-detail-percent>…</strong>
+                                        </div>
+                                        <h4>Closed Recursive DNS Resolvers</h4>
+                                    </article>
+                                </div>
+                                <div class="practice-segment-legend" aria-label="BCP38 evidence legend">
+                                    <span><i class="practice-legend-bcp38-allowing"></i>Network allows spoofing (percentage shown)</span>
+                                    <span><i class="practice-legend-bcp38-blocking"></i>Network actively blocks spoofing</span>
+                                    <span><i class="practice-legend-unknown"></i>Unknown</span>
+                                </div>
+                                <div class="practice-methodology">
+                                    <h4>How we measure and collect data</h4>
+                                    <p>CAIDA Spoofer measurements provide active evidence that a network allows or blocks packets with spoofed source addresses. A recursive DNS resolver is classified as allowing spoofing when its AS has allowing evidence, and as actively blocking when its AS has CAIDA blocking evidence but no conflicting allowing evidence. Resolvers without either classification are shown as unknown.</p>
+                                    <p>In addition to CAIDA Spoofer data, we use a phenomenon in the open DNS infrastructure called <strong>transparent DNS forwarders</strong>.
+                                        These are DNS servers that relay queries to upstream resolvers while retaining the original client's source address, hence forwarding packets with spoofed source IP addresses.
+                                        The transparent forwarders found by the Open DNS API provide additional evidence that source-address validation is missing or not properly deployed in the AS of the transparent forwarder.
+                                        More details on this component and the measurement method can be found in the following papers:</p>
+                                    <ul class="practice-publications">
+                                        <li><a href="https://dl.acm.org/doi/10.1145/3485983.3494872" target="_blank" rel="noopener noreferrer">Transparent Forwarders: An Unnoticed Component of the Open DNS Infrastructure</a> by Nawrocki et al. (ACM CoNEXT 2021)</li>
+                                        <li><a href="https://doi.org/10.1145/3719027.3765096" target="_blank" rel="noopener noreferrer">Forward to Hell? On the Potentials of Misusing Transparent DNS Forwarders in Reflective Amplification Attacks</a> by Koch et al. (ACM CCS 2025)</li>
+                                    </ul>
+                                    <aside class="practice-methodology-note" role="note" aria-label="Important limitation">
+                                        <span class="practice-methodology-note-icon" aria-hidden="true">!</span>
+                                        <p><strong>Important limitation:</strong> A resolver deployed in an AS with a transparent forwarder does not mean that the whole AS fails to implement source address validation (SAV).
+                                            Only parts of the network where the transparent forwarder is deployed may allow source-address spoofing. Nevertheless, this is a strong indicator and influences the resilience score of the network.</p>
+                                    </aside>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="practice-card practice-card-expandable" style="--practice-index: 3" data-practice-card="manrs">
+                        <span class="practice-number">04</span>
+                        <div>
+                            <h3>MANRS Compliance</h3>
+                            <p>Observable routing-security and operational practices aligned with a safer global routing system.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Routing security</span>
+                            <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                            <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="manrs-practice-details">
+                                <span aria-hidden="true">+</span>
+                                <span class="visually-hidden">Show MANRS compliance details</span>
+                            </button>
+                        </div>
+                        <div class="practice-detail-panel" id="manrs-practice-details" hidden>
+                            <div class="practice-detail-loading" data-detail-loading role="status">
+                                <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                Loading MANRS readiness details…
+                            </div>
+                            <div class="practice-detail-content" data-detail-content hidden>
+                                <h3 class="manrs-detail-title">Average MANRS readiness score</h3>
+                                <div class="manrs-detail-rows">
+                                    <section class="manrs-entity-row" aria-labelledby="manrs-as-heading">
+                                        <h4 id="manrs-as-heading">For ASes with…</h4>
+                                        <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                            <article class="practice-detail-gauge" data-manrs-entity="asn" data-manrs-scope="open">
+                                                <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0" role="img" aria-label="ASes with open recursive DNS resolvers: loading">
+                                                    <div class="practice-segmented-speedometer-arc"></div>
+                                                    <strong data-detail-percent>…</strong>
+                                                </div>
+                                                <h4>Open recursive DNS resolvers</h4>
+                                                <p class="practice-detail-entity-count" data-manrs-entity-count>Loading…</p>
+                                            </article>
+                                            <article class="practice-detail-gauge" data-manrs-entity="asn" data-manrs-scope="closed">
+                                                <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0" role="img" aria-label="ASes with closed recursive DNS resolvers: loading">
+                                                    <div class="practice-segmented-speedometer-arc"></div>
+                                                    <strong data-detail-percent>…</strong>
+                                                </div>
+                                                <h4>Closed recursive DNS resolvers</h4>
+                                                <p class="practice-detail-entity-count" data-manrs-entity-count>Loading…</p>
+                                            </article>
+                                        </div>
+                                    </section>
+                                    <section class="manrs-entity-row" aria-labelledby="manrs-economy-heading">
+                                        <h4 id="manrs-economy-heading">For economies with…</h4>
+                                        <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                            <article class="practice-detail-gauge" data-manrs-entity="country" data-manrs-scope="open">
+                                                <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0" role="img" aria-label="Economies with open recursive DNS resolvers: loading">
+                                                    <div class="practice-segmented-speedometer-arc"></div>
+                                                    <strong data-detail-percent>…</strong>
+                                                </div>
+                                                <h4>Open recursive DNS resolvers</h4>
+                                                <p class="practice-detail-entity-count" data-manrs-entity-count>Loading…</p>
+                                            </article>
+                                            <article class="practice-detail-gauge" data-manrs-entity="country" data-manrs-scope="closed">
+                                                <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0" role="img" aria-label="Economies with closed recursive DNS resolvers: loading">
+                                                    <div class="practice-segmented-speedometer-arc"></div>
+                                                    <strong data-detail-percent>…</strong>
+                                                </div>
+                                                <h4>Closed recursive DNS resolvers</h4>
+                                                <p class="practice-detail-entity-count" data-manrs-entity-count>Loading…</p>
+                                            </article>
+                                        </div>
+                                    </section>
+                                </div>
+                                <div class="practice-methodology">
+                                    <h4>How we measure and collect data</h4>
+                                    <p>For each AS and economy represented by recursive DNS resolvers, we average the available MANRS readiness scores for anti-spoofing, coordination, filtering, IRR routing information, and RPKI routing information. Each AS or economy contributes equally to the displayed group average.</p>
+                                    <p>Open and closed groups are based on whether an AS or economy contains at least one open or closed recursive DNS resolver. An AS or economy can therefore appear in both groups. Entity totals include all matching database entities.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="practice-card" style="--practice-index: 4">
+                        <span class="practice-number">05</span>
+                        <div>
+                            <h3>Geographical Diversity</h3>
+                            <p>How resolver infrastructure is distributed across locations to reduce geographic concentration.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Diversity</span>
+                            <span class="practice-status practice-status-unmeasured"><span aria-hidden="true">×</span> Not yet measured</span>
+                        </div>
+                    </li>
+                    <li class="practice-card" style="--practice-index: 5">
+                        <span class="practice-number">06</span>
+                        <div>
+                            <h3>Topological Diversity</h3>
+                            <p>How resolver infrastructure is distributed across independent networks and routing paths.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Diversity</span>
+                            <span class="practice-status practice-status-unmeasured"><span aria-hidden="true">×</span> Not yet measured</span>
+                        </div>
+                    </li>
+                    <li class="practice-card" style="--practice-index: 6">
+                        <span class="practice-number">07</span>
+                        <div>
+                            <h3>ADNS and RDNS on Different Servers</h3>
+                            <p>Whether authoritative and recursive DNS software are operated on separate servers.</p>
+                        </div>
+                        <div class="practice-meta">
+                            <span class="practice-theme">Separation</span>
+                            <span class="practice-status practice-status-unmeasured"><span aria-hidden="true">×</span> Not yet measured</span>
+                        </div>
+                    </li>
+                </ol>
+
+                <section class="additional-practices" aria-labelledby="additional-practices-title">
+                    <div class="practice-heading">
+                        <div>
+                            <p class="home-eyebrow home-eyebrow-dark">Beyond KINDNS</p>
+                            <h2 id="additional-practices-title">Other Measurable Practices</h2>
+                        </div>
+                    </div>
+
+                    <ol class="practice-grid additional-practice-grid">
+                        <li class="practice-card additional-practice-card practice-card-expandable" style="--practice-index: 0" data-practice-card="anycast">
+                            <span class="practice-number">01</span>
+                            <div>
+                                <h3>Anycast Enabled</h3>
+                                <p>Whether a recursive DNS resolver is announced from multiple network locations for availability and resilience.</p>
+                            </div>
+                            <div class="practice-meta">
+                                <span class="practice-theme">Availability</span>
+                                <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="anycast-practice-details">
+                                    <span aria-hidden="true">+</span>
+                                    <span class="visually-hidden">Show anycast details</span>
+                                </button>
+                            </div>
+                            <div class="practice-detail-panel" id="anycast-practice-details" hidden>
+                                <div class="practice-detail-loading" data-detail-loading role="status">
+                                    <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                    Loading anycast details…
+                                </div>
+                                <div class="practice-detail-content" data-detail-content hidden>
+                                    <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                        <article class="practice-detail-gauge" data-anycast-scope="open">
+                                            <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Open recursive DNS resolver anycast deployment: loading">
+                                                <div class="practice-segmented-speedometer-arc"></div>
+                                                <strong data-detail-percent>…</strong>
+                                            </div>
+                                            <h4>Open Recursive DNS Resolvers</h4>
+                                        </article>
+                                        <article class="practice-detail-gauge" data-anycast-scope="closed">
+                                            <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Closed recursive DNS resolver anycast deployment: loading">
+                                                <div class="practice-segmented-speedometer-arc"></div>
+                                                <strong data-detail-percent>…</strong>
+                                            </div>
+                                            <h4>Closed Recursive DNS Resolvers</h4>
+                                        </article>
+                                    </div>
+                                    <div class="practice-segment-legend" aria-label="Anycast legend">
+                                        <span><i class="practice-legend-positive"></i>Anycast enabled</span>
+                                        <span><i class="practice-legend-unknown"></i>No anycast</span>
+                                    </div>
+                                    <div class="anycast-ranking-card">
+                                        <h4>Top 5 Anycast IP addresses</h4>
+                                        <div class="anycast-ranking-table-wrap">
+                                            <table class="anycast-ranking-table">
+                                                <thead>
+                                                    <tr><th>Rank</th><th>IP Address</th><th>Company</th><th>Sites [#]</th><th>Countries [#]</th></tr>
+                                                </thead>
+                                                <tbody data-anycast-top-five>
+                                                    <tr><td colspan="5">Loading ranking…</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="anycast-ranking-card">
+                                        <h4>Top 5 Companies by Anycast Sites</h4>
+                                        <div class="anycast-ranking-table-wrap">
+                                            <table class="anycast-ranking-table">
+                                                <thead>
+                                                    <tr><th>Rank</th><th>Company</th><th>Sites [#]</th><th>Anycast IP Addresses [#]</th></tr>
+                                                </thead>
+                                                <tbody data-anycast-company-top-five>
+                                                    <tr><td colspan="4">Loading ranking…</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="practice-methodology">
+                                        <h4>How we measure and collect data</h4>
+                                        <p>A recursive DNS resolver is classified as anycast when its IP address is covered by an observed anycast prefix using the <a href="https://manycast.net/" target="_blank" rel="noopener noreferrer">MAnycast API</a>.
+                                            We report on the number of anycast sites by using the results from the MAnycast API extended with the data from the ODNS API.
+                                            We can, again, leverage transparent DNS forwarders to identify additional anycast sites that are not covered by the MAnycast API.
+                                            The authoritative nameserver used for the open DNS measurements returns the IP address of the connecting backend resolver.
+                                            In the case of a transparent forwarder that relays its request to an anycast resolver such as Google's <code>8.8.8.8</code>, the actual IP address of the anycast site is returned.
+                                            For more information on transparent DNS forwarders, see the following publications:
+                                        <ul class="practice-publications">
+                                        <li><a href="https://dl.acm.org/doi/10.1145/3485983.3494872" target="_blank" rel="noopener noreferrer">Transparent Forwarders: An Unnoticed Component of the Open DNS Infrastructure</a> by Nawrocki et al. (ACM CoNEXT 2021)</li>
+                                        <li><a href="https://doi.org/10.1145/3719027.3765096" target="_blank" rel="noopener noreferrer">Forward to Hell? On the Potentials of Misusing Transparent DNS Forwarders in Reflective Amplification Attacks</a> by Koch et al. (ACM CCS 2025)</li>
+                                    </ul></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="practice-card additional-practice-card practice-card-expandable" style="--practice-index: 1" data-practice-card="dual-stack">
+                            <span class="practice-number">02</span>
+                            <div>
+                                <h3>Dual Stack Connectivity</h3>
+                                <p>Whether recursive DNS resolvers are reachable over both IPv4 and IPv6.</p>
+                            </div>
+                            <div class="practice-meta">
+                                <span class="practice-theme">Connectivity</span>
+                                <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="dual-stack-practice-details">
+                                    <span aria-hidden="true">+</span>
+                                    <span class="visually-hidden">Show dual stack connectivity details</span>
+                                </button>
+                            </div>
+                            <div class="practice-detail-panel" id="dual-stack-practice-details" hidden>
+                                <div class="practice-detail-loading" data-detail-loading role="status">
+                                    <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                    Loading dual stack connectivity details…
+                                </div>
+                                <div class="practice-detail-content" data-detail-content hidden>
+                                    <div class="practice-detail-gauge-grid practice-detail-gauge-grid-two">
+                                        <article class="practice-detail-gauge" data-dual-stack-scope="open">
+                                            <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Open recursive DNS resolver dual stack connectivity: loading">
+                                                <div class="practice-segmented-speedometer-arc"></div>
+                                                <strong data-detail-percent>…</strong>
+                                            </div>
+                                            <h4>Open Recursive DNS Resolvers</h4>
+                                        </article>
+                                        <article class="practice-detail-gauge" data-dual-stack-scope="closed">
+                                            <div class="practice-segmented-speedometer practice-binary-speedometer is-loading" style="--positive: 0; --negative: 0" role="img" aria-label="Closed recursive DNS resolver dual stack connectivity: loading">
+                                                <div class="practice-segmented-speedometer-arc"></div>
+                                                <strong data-detail-percent>…</strong>
+                                            </div>
+                                            <h4>Closed Recursive DNS Resolvers</h4>
+                                        </article>
+                                    </div>
+                                    <div class="practice-segment-legend" aria-label="Dual stack connectivity legend">
+                                        <span><i class="practice-legend-positive"></i>Dual stack</span>
+                                        <span><i class="practice-legend-unknown"></i>Single stack/unknown</span>
+                                    </div>
+                                    <div class="practice-methodology">
+                                        <h4>How we measure and collect data</h4>
+                                        <p>A recursive DNS resolver is classified as dual stack when the same resolver identity has at least one observed IPv4 address and at least one observed IPv6 address.
+                                            As of now, we rely on SVCB records to find alternative resolver addresses.
+                                            In the future, we plan to use available IPv6 resolver lists and run active measurements for verification.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="practice-card additional-practice-card practice-card-expandable" style="--practice-index: 2" data-practice-card="protocols">
+                            <span class="practice-number">03</span>
+                            <div>
+                                <h3>Secure Protocols</h3>
+                                <p>Whether recursive DNS resolvers support encrypted DNS transports that protect queries in transit.</p>
+                            </div>
+                            <div class="practice-meta">
+                                <span class="practice-theme">Transport security</span>
+                                <span class="practice-status practice-status-measured"><span aria-hidden="true">✓</span> Currently measured</span>
+                                <button class="practice-card-toggle" type="button" aria-expanded="false" aria-controls="secure-protocol-practice-details">
+                                    <span aria-hidden="true">+</span>
+                                    <span class="visually-hidden">Show secure protocol details</span>
+                                </button>
+                            </div>
+                            <div class="practice-detail-panel" id="secure-protocol-practice-details" hidden>
+                                <div class="practice-detail-loading" data-detail-loading role="status">
+                                    <span class="practice-detail-spinner" aria-hidden="true"></span>
+                                    Loading protocol details…
+                                </div>
+                                <div class="practice-detail-content" data-detail-content hidden>
+                                    <div class="protocol-detail-visual">
+                                        <div class="protocol-multiring-speedometer is-loading" role="img" aria-label="Recursive DNS resolver protocol support: loading">
+                                            <svg viewBox="0 0 300 160" aria-hidden="true" focusable="false">
+                                                <g data-protocol-arcs></g>
+                                            </svg>
+                                            <strong><span data-protocol-type-count>…</span><small>protocols</small></strong>
+                                        </div>
+                                    </div>
+                                    <div class="protocol-detail-breakdown">
+                                        <article class="protocol-detail-card">
+                                            <h4>Protocols</h4>
+                                            <div class="protocol-detail-legend" data-protocol-legend aria-label="Protocol legend"></div>
+                                        </article>
+                                        <article class="protocol-detail-card">
+                                            <h4>Port Distribution</h4>
+                                            <div class="protocol-port-bars" data-protocol-port-bars></div>
+                                        </article>
+                                    </div>
+                                    <div class="practice-methodology">
+                                        <h4>How we measure and collect data</h4>
+                                        <p>Protocol support is collected from the service records associated with each recursive DNS resolver. Only records with a successful protocol test contribute to the gauges and port distribution. A failed test is stored as not supported, while the absence of a protocol record means it has not been tested. Each ring independently shows the percentage of recursive DNS resolvers with that protocol, so percentages may overlap when one recursive DNS resolver supports several transports.</p>
+                                        <p><code>DoUDP</code> and <code>DoTCP</code> are conventional unencrypted DNS transports and are shown in two distinct pastel-red tones. Encrypted transports—including <code>DoH</code>, <code>DoT</code>, and <code>DoQ</code> variants—are shown in blue tones.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="practice-card additional-practice-card" style="--practice-index: 3">
+                            <span class="practice-number">04</span>
+                            <div>
+                                <h3>Cache Poisoning</h3>
+                                <p>Whether recursive DNS resolver behavior limits attempts to insert forged or manipulated records into its cache.</p>
+                            </div>
+                            <div class="practice-meta">
+                                <span class="practice-theme">Cache security</span>
+                                <span class="practice-status practice-status-unmeasured"><span aria-hidden="true">×</span> Not yet measured</span>
+                            </div>
+                        </li>
+                        <li class="practice-card additional-practice-card" style="--practice-index: 4">
+                            <span class="practice-number">05</span>
+                            <div>
+                                <h3>Caching Duration</h3>
+                                <p>How long recursive DNS resolvers retain records and whether observed cache behavior follows advertised TTLs.</p>
+                            </div>
+                            <div class="practice-meta">
+                                <span class="practice-theme">Cache behavior</span>
+                                <span class="practice-status practice-status-unmeasured"><span aria-hidden="true">×</span> Not yet measured</span>
+                            </div>
+                        </li>
+                    </ol>
+                </section>
+
+            </div>
+        </section>
+
+        <section class="measurement-section" aria-labelledby="measurement-title">
+            <div class="home-shell">
+                <div class="measurement-heading">
+                    <p class="home-eyebrow home-eyebrow-dark">Our methodology</p>
+                    <h2 id="measurement-title">How We Measure</h2>
+                </div>
+
+                <details class="source-disclosure" data-public-source-disclosure>
+                    <summary>
+                        <span class="source-summary-icon" aria-hidden="true">+</span>
+                        <span>
+                            <strong>Collecting Data From Public Sources</strong>
+                            <small>Expand to see the datasets that inform the observatory</small>
+                        </span>
+                    </summary>
+                    <div class="source-list">
+                        <a class="source-card source-card-link" data-source-key="odns-api" href="https://odns-data.netd.cs.tu-dresden.de/" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">01</span>
+                            <div>
+                                <h3>Open DNS API <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Identifies public and closed recursive DNS resolvers.</p>
+                            </div>
+                        </a>
+                        <article class="source-card">
+                            <span class="source-number">02</span>
+                            <div>
+                                <h3>GitHub Repositories</h3>
+                                <p>Provides additional community-maintained resolver datasets.</p>
+                                <ul class="source-repository-list" data-github-repositories aria-live="polite">
+                                    <li class="source-repository-loading">Loading repositories…</li>
+                                </ul>
+                            </div>
+                        </article>
+                        <a class="source-card source-card-link" data-source-key="manycast" href="https://manycast.net/" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">03</span>
+                            <div>
+                                <h3>Manycast <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Provides observations used to identify resolver anycast support.</p>
+                            </div>
+                        </a>
+                        <a class="source-card source-card-link" data-source-key="caida-spoofer" href="https://www.caida.org/projects/spoofer/" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">04</span>
+                            <div>
+                                <h3>CAIDA Spoofer <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Helps determine whether a resolver is deployed in a spoofable network environment.</p>
+                            </div>
+                        </a>
+                        <a class="source-card source-card-link" data-source-key="apnic-dnssec" href="https://stats.labs.apnic.net/dnssec" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">05</span>
+                            <div>
+                                <h3>APNIC Labs DNS Measurements <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Provides Internet-scale DNS measurement data on resolver behavior and protocol deployment.</p>
+                            </div>
+                        </a>
+                        <a class="source-card source-card-link" data-source-key="manrs-observatory" href="https://observatory.manrs.org/" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">06</span>
+                            <div>
+                                <h3>MANRS Observatory <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Provides MANRS readiness scores for resolver-linked autonomous systems and economies.</p>
+                            </div>
+                        </a>
+                    </div>
+                    <section class="source-distribution-card" data-source-distribution aria-busy="true" aria-labelledby="source-distribution-title">
+                        <div class="source-distribution-heading">
+                            <h3 id="source-distribution-title">Resolver Source Distribution</h3>
+                            <p>Percentage of recursive DNS resolver IP records contributed by each source.</p>
+                        </div>
+                        <div class="source-distribution-layout">
+                            <div class="source-donut is-loading" data-source-donut role="img" aria-label="Resolver source distribution is loading">
+                                <div class="source-donut-center">
+                                    <strong data-source-total>…</strong>
+                                    <span>Resolvers</span>
+                                </div>
+                            </div>
+                            <div class="source-distribution-legend" data-source-distribution-legend aria-live="polite">
+                                <p>Loading source distribution…</p>
+                            </div>
+                        </div>
+                    </section>
+                </details>
+
+                <details class="source-disclosure measurement-disclosure">
+                    <summary>
+                        <span class="source-summary-icon" aria-hidden="true">+</span>
+                        <span>
+                            <strong>Active Measurement</strong>
+                            <small>Expand to see the tools used to measure resolver behavior</small>
+                        </span>
+                    </summary>
+                    <div class="source-list source-list-single">
+                        <a class="source-card source-card-link" data-source-key="zdns.svcb" href="https://github.com/zmap/zdns" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">01</span>
+                            <div>
+                                <h3>ZDNS <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Performs high-speed active DNS measurements to test resolver availability, observable protocol behavior, or identify alternative resolver addresses in <code>SVCB</code> records.</p>
+                            </div>
+                        </a>
+                    </div>
+                </details>
+            </div>
+        </section>
+
+        <section class="home-search-callout" aria-labelledby="search-callout-title">
+            <div class="home-shell home-search-callout-inner">
+                <div>
+                    <p class="home-eyebrow home-eyebrow-dark">KINDNS practices and more</p>
+                    <h2 id="search-callout-title">Explore the observations for individual resolvers, ASes, and economies.</h2>
+                    <p>Investigate resolver data by IP address, BGP prefix, autonomous system, country, protocol, or measured practice, and compare deployment and routing-security metrics side by side.</p>
+                </div>
+                <div class="home-search-callout-actions">
+                    <a class="home-button home-button-dark" href="/search.html">Open Resolver Search</a>
+                    <a class="home-button home-button-dark" href="/compare.html">Compare Metrics</a>
+                </div>
+            </div>
         </section>
     </main>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        const apiBaseUrl = "{{ api_base_url }}".replace(/\/+$/, "");
+        const practiceCards = document.querySelectorAll(".practice-card");
+        const resolverMetricLabels = {
+            dnssec_validating_pc: "DNSSEC Validation",
+            anycast_pc: "Anycast Enabled",
+            qmin_safe_pc: "Proper QMIN Implementation",
+            dual_stack_pc: "Dual Stack Connectivity",
+            secure_protocol_pc: "Secure Protocols",
+        };
+        const resolverMetricEndpoints = {
+            dnssec_validating_pc: "dnssec-validation",
+            anycast_pc: "anycast",
+            qmin_safe_pc: "proper-qmin",
+            dual_stack_pc: "dual-stack",
+            secure_protocol_pc: "secure-protocols",
+        };
+        const resolverCountFormatter = new Intl.NumberFormat();
+        const resolverPercentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        function formatResolverPercent(value) {
+            if (value > 0 && value < 0.1) {
+                return "<0.1%";
+            }
+            return `${resolverPercentFormatter.format(value)}%`;
+        }
+
+        function animateResolverPercent(element, targetValue) {
+            if (reducedMotion || (targetValue > 0 && targetValue < 0.1)) {
+                element.textContent = formatResolverPercent(targetValue);
+                return;
+            }
+            const startedAt = performance.now();
+            const duration = 900;
+            const step = (now) => {
+                const progress = Math.min((now - startedAt) / duration, 1);
+                const easedProgress = 1 - Math.pow(1 - progress, 3);
+                element.textContent = formatResolverPercent(targetValue * easedProgress);
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                }
+            };
+            requestAnimationFrame(step);
+        }
+
+        function resolverCard(scope) {
+            return document.querySelector(`[data-resolver-scope="${scope}"]`);
+        }
+
+        function renderResolverCount(scope, payload) {
+            const card = resolverCard(scope);
+            if (!card) {
+                return;
+            }
+            const countElement = card.querySelector("[data-resolver-count]");
+            countElement.textContent = `(${resolverCountFormatter.format(Number(payload.count || 0))})`;
+            countElement.classList.remove("is-loading");
+        }
+
+        function renderResolverPracticeMetric(scope, metric, payload) {
+            const card = resolverCard(scope);
+            if (!card) {
+                return;
+            }
+            const gauge = card.querySelector(`[data-metric="${metric}"]`);
+            if (!gauge) {
+                return;
+            }
+            const absoluteCount = Number(payload.count || 0);
+            const totalCount = Number(payload.resolver_count || 0);
+            const rawValue = totalCount ? (absoluteCount / totalCount) * 100 : 0;
+            const value = Math.max(0, Math.min(100, Number.isFinite(rawValue) ? rawValue : 0));
+            const formattedValue = formatResolverPercent(value);
+            gauge.classList.remove("is-loading");
+            gauge.style.setProperty("--value", 0);
+            requestAnimationFrame(() => gauge.style.setProperty("--value", value));
+            animateResolverPercent(gauge.querySelector("strong"), value);
+            const exactCount = resolverCountFormatter.format(absoluteCount);
+            const absoluteLabel = `${exactCount} ${absoluteCount === 1 ? "resolver" : "resolvers"}`;
+            gauge.title = absoluteLabel;
+            gauge.setAttribute(
+                "aria-label",
+                `${resolverMetricLabels[metric]}: ${absoluteLabel}, ${formattedValue}`,
+            );
+        }
+
+        function fetchResolverPracticeValue(scope, metric) {
+            const endpointMetric = metric === "resolver_count" ? "resolver-count" : resolverMetricEndpoints[metric];
+            return fetch(`${apiBaseUrl}/api/dns-resilience/global/practice-summary/${scope}/${endpointMetric}`)
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`${scope}/${endpointMetric} failed with status ${response.status}`);
+                    }
+                    return response.json();
+                });
+        }
+
+        ["open", "closed"].forEach((scope) => {
+            const card = resolverCard(scope);
+            const requests = [];
+            requests.push(
+                fetchResolverPracticeValue(scope, "resolver_count")
+                    .then((payload) => renderResolverCount(scope, payload))
+                    .catch(() => {
+                        const countElement = card.querySelector("[data-resolver-count]");
+                        countElement.textContent = "(Unavailable)";
+                        countElement.classList.remove("is-loading");
+                    }),
+            );
+            Object.keys(resolverMetricEndpoints).forEach((metric) => {
+                requests.push(
+                    fetchResolverPracticeValue(scope, metric)
+                        .then((payload) => renderResolverPracticeMetric(scope, metric, payload))
+                        .catch(() => {
+                            const gauge = card.querySelector(`[data-metric="${metric}"]`);
+                            gauge.classList.remove("is-loading");
+                            gauge.style.setProperty("--value", 0);
+                            gauge.removeAttribute("title");
+                            gauge.querySelector("strong").textContent = "—";
+                            gauge.setAttribute("aria-label", `${resolverMetricLabels[metric]}: unavailable`);
+                        }),
+                );
+            });
+            Promise.allSettled(requests).then(() => card.setAttribute("aria-busy", "false"));
+        });
+
+        function fetchPracticeDetail(path) {
+            return fetch(`${apiBaseUrl}${path}`, { cache: "no-store" }).then((response) => {
+                if (!response.ok) {
+                    throw new Error(`${path} failed with status ${response.status}`);
+                }
+                return response.json();
+            });
+        }
+
+        const publicSourceNames = {
+            "odns-api": "Open DNS API",
+            "manycast": "Manycast",
+            "caida-spoofer": "CAIDA Spoofer",
+            "apnic-dnssec": "APNIC Labs",
+            "manrs-observatory": "MANRS Observatory",
+            "ripe-stat-rpki": "RIPEstat RPKI",
+            "measurements.qmin": "Active QMIN Measurement",
+            "measurements.zdns.dnssec": "ZDNS DNSSEC Measurement",
+            "zdns.svcb": "ZDNS SVCB Measurement",
+            "webpage-resolver.github.trickest": "Trickest Resolver List",
+        };
+        const publicSourceColors = [
+            "#334985",
+            "#2a9d8f",
+            "#e07a5f",
+            "#7b5ea7",
+            "#d4a72c",
+            "#4c956c",
+            "#c85578",
+            "#64748b",
+            "#b56b2a",
+            "#557fba",
+        ];
+
+        function publicSourceName(source) {
+            if (publicSourceNames[source]) {
+                return publicSourceNames[source];
+            }
+            return String(source || "Unknown source")
+                .replace(/[._-]+/g, " ")
+                .replace(/\b\w/g, (letter) => letter.toUpperCase());
+        }
+
+        function renderGithubRepositories(repositories) {
+            const container = document.querySelector("[data-github-repositories]");
+            if (!container) {
+                return;
+            }
+            container.replaceChildren();
+            if (!Array.isArray(repositories) || !repositories.length) {
+                const item = document.createElement("li");
+                item.className = "source-repository-loading";
+                item.textContent = "No GitHub repositories are configured.";
+                container.append(item);
+                return;
+            }
+            repositories.forEach((repository) => {
+                const item = document.createElement("li");
+                const link = document.createElement("a");
+                link.href = repository.url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = repository.name;
+                link.setAttribute("aria-label", `Open the ${repository.name} GitHub repository`);
+                const icon = document.createElement("span");
+                icon.setAttribute("aria-hidden", "true");
+                icon.textContent = "↗";
+                link.append(icon);
+                item.append(link);
+                container.append(item);
+            });
+        }
+
+        function renderSourceDistribution(payload) {
+            const section = document.querySelector("[data-source-distribution]");
+            const donut = section?.querySelector("[data-source-donut]");
+            const totalElement = section?.querySelector("[data-source-total]");
+            const legend = section?.querySelector("[data-source-distribution-legend]");
+            if (!section || !donut || !totalElement || !legend) {
+                return;
+            }
+
+            const total = Number(payload.resolver_count || 0);
+            const rows = Array.isArray(payload.distribution)
+                ? payload.distribution.filter((row) => Number(row.resolver_count || 0) > 0)
+                : [];
+            legend.replaceChildren();
+            totalElement.textContent = resolverCountFormatter.format(total);
+            donut.classList.remove("is-loading");
+
+            if (!total || !rows.length) {
+                donut.style.background = "conic-gradient(#dce2ed 0 100%)";
+                donut.classList.add("is-ready");
+                donut.setAttribute("aria-label", "No resolver source distribution is available");
+                const unavailable = document.createElement("p");
+                unavailable.textContent = "No resolver source distribution is available.";
+                legend.append(unavailable);
+                section.setAttribute("aria-busy", "false");
+                return;
+            }
+
+            let cumulativePercentage = 0;
+            const gradientSegments = [];
+            const descriptions = [];
+            rows.forEach((row, index) => {
+                const count = Number(row.resolver_count || 0);
+                const percentage = (count / total) * 100;
+                const start = cumulativePercentage;
+                cumulativePercentage += percentage;
+                const end = index === rows.length - 1 ? 100 : cumulativePercentage;
+                const color = publicSourceColors[index % publicSourceColors.length];
+                const label = publicSourceName(row.source);
+                const formattedPercentage = formatResolverPercent(percentage);
+                gradientSegments.push(`${color} ${start}% ${end}%`);
+                descriptions.push(`${label}: ${formattedPercentage}, ${resolverCountFormatter.format(count)} resolvers`);
+
+                const item = document.createElement("div");
+                item.className = "source-distribution-legend-item";
+                item.title = `${resolverCountFormatter.format(count)} recursive DNS resolver IP records`;
+                const swatch = document.createElement("span");
+                swatch.className = "source-distribution-swatch";
+                swatch.style.background = color;
+                const name = document.createElement("span");
+                name.className = "source-distribution-name";
+                name.textContent = label;
+                const value = document.createElement("span");
+                value.className = "source-distribution-value";
+                value.textContent = formattedPercentage;
+                item.append(swatch, name, value);
+                legend.append(item);
+            });
+
+            donut.style.background = `conic-gradient(${gradientSegments.join(", ")})`;
+            requestAnimationFrame(() => donut.classList.add("is-ready"));
+            donut.setAttribute("aria-label", `Resolver source distribution. ${descriptions.join("; ")}`);
+            section.setAttribute("aria-busy", "false");
+        }
+
+        function renderPublicSourceSummary(payload) {
+            const sources = Array.isArray(payload.sources) ? payload.sources : [];
+            const sourceByKey = new Map(sources.map((source) => [source.source, source]));
+            document.querySelectorAll("[data-source-key]").forEach((card) => {
+                const source = sourceByKey.get(card.dataset.sourceKey);
+                if (source?.url) {
+                    card.href = source.url;
+                }
+            });
+            renderGithubRepositories(payload.github_repositories);
+            renderSourceDistribution(payload);
+        }
+
+        function renderPublicSourceUnavailable() {
+            const repositories = document.querySelector("[data-github-repositories]");
+            if (repositories) {
+                repositories.replaceChildren();
+                const unavailable = document.createElement("li");
+                unavailable.className = "source-repository-loading";
+                unavailable.textContent = "Repository data unavailable.";
+                repositories.append(unavailable);
+            }
+            renderSourceDistribution({ resolver_count: 0, distribution: [] });
+        }
+
+        fetchPracticeDetail("/api/dns-resilience/global/data-sources")
+            .then(renderPublicSourceSummary)
+            .catch(renderPublicSourceUnavailable);
+
+        function boundedPercent(value) {
+            const numericValue = Number(value || 0);
+            return Math.max(0, Math.min(100, Number.isFinite(numericValue) ? numericValue : 0));
+        }
+
+        function renderSegmentedPracticeGauge(target, values, labels, ariaPrefix) {
+            const gauge = target.querySelector(".practice-segmented-speedometer");
+            const positive = boundedPercent(values.positive);
+            const negative = Math.min(boundedPercent(values.negative), 100 - positive);
+            const notImplemented = Math.min(
+                boundedPercent(values.notImplemented),
+                100 - positive - negative,
+            );
+            const unstable = Math.min(
+                boundedPercent(values.unstable),
+                100 - positive - negative - notImplemented,
+            );
+            const unknown = Math.max(
+                0,
+                100 - positive - negative - notImplemented - unstable,
+            );
+            gauge.classList.remove("is-loading");
+            gauge.style.setProperty("--positive", 0);
+            gauge.style.setProperty("--negative", 0);
+            gauge.style.setProperty("--not-implemented", 0);
+            gauge.style.setProperty("--unstable", 0);
+            requestAnimationFrame(() => {
+                gauge.style.setProperty("--positive", positive);
+                gauge.style.setProperty("--negative", negative);
+                gauge.style.setProperty("--not-implemented", notImplemented);
+                gauge.style.setProperty("--unstable", unstable);
+            });
+            animateResolverPercent(gauge.querySelector("[data-detail-percent]"), positive);
+            const description = [
+                `${labels.positive} ${formatResolverPercent(positive)}${values.positiveCountLabel || ""}`,
+                `${labels.negative} ${formatResolverPercent(negative)}${values.negativeCountLabel || ""}`,
+                ...(labels.notImplemented ? [
+                    `${labels.notImplemented} ${formatResolverPercent(notImplemented)}${values.notImplementedCountLabel || ""}`,
+                ] : []),
+                ...(labels.unstable ? [
+                    `${labels.unstable} ${formatResolverPercent(unstable)}${values.unstableCountLabel || ""}`,
+                ] : []),
+                `${labels.unknown} ${formatResolverPercent(unknown)}${values.unknownCountLabel || ""}`,
+            ].join(", ");
+            gauge.title = description;
+            gauge.setAttribute("aria-label", `${ariaPrefix}: ${description}`);
+        }
+
+        function renderUnavailablePracticeGauge(target, ariaPrefix) {
+            const gauge = target.querySelector(".practice-segmented-speedometer");
+            gauge.classList.remove("is-loading");
+            gauge.querySelector("[data-detail-percent]").textContent = "—";
+            gauge.removeAttribute("title");
+            gauge.setAttribute("aria-label", `${ariaPrefix}: unavailable`);
+        }
+
+        function countLabel(value, noun = "resolvers") {
+            const numericValue = Number(value || 0);
+            const singularNoun = noun === "resolvers" ? "resolver" : noun.replace(/s$/, "");
+            return ` (${resolverCountFormatter.format(numericValue)} ${numericValue === 1 ? singularNoun : noun})`;
+        }
+
+        function loadDnssecPracticeDetails(card) {
+            const labels = { positive: "Validating", negative: "Not validating", unknown: "Unknown" };
+            const scopes = ["open", "closed", "country"];
+            return Promise.allSettled(scopes.map((scope) =>
+                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/dnssec/${scope}`)
+                    .then((payload) => {
+                        const target = card.querySelector(`[data-dnssec-scope="${scope}"]`);
+                        if (scope === "country") {
+                            renderSegmentedPracticeGauge(target, {
+                                positive: payload.validating_pc,
+                                negative: payload.not_validating_pc,
+                                unknown: payload.unknown_pc,
+                            }, labels, `Average across ${resolverCountFormatter.format(Number(payload.country_count || 0))} APNIC country observations`);
+                            return;
+                        }
+                        const scopeLabel = scope === "open" ? "Open recursive DNS resolvers" : "Closed recursive DNS resolvers";
+                        const resolverCount = Number(payload.resolver_count || 0);
+                        renderSegmentedPracticeGauge(target, {
+                            positive: resolverCount ? (Number(payload.validating_count || 0) / resolverCount) * 100 : 0,
+                            negative: resolverCount ? (Number(payload.not_validating_count || 0) / resolverCount) * 100 : 0,
+                            unknown: resolverCount ? (Number(payload.unknown_count || 0) / resolverCount) * 100 : 0,
+                            positiveCountLabel: countLabel(payload.validating_count),
+                            negativeCountLabel: countLabel(payload.not_validating_count),
+                            unknownCountLabel: countLabel(payload.unknown_count),
+                        }, labels, scopeLabel);
+                    })
+                    .catch(() => {
+                        const target = card.querySelector(`[data-dnssec-scope="${scope}"]`);
+                        renderUnavailablePracticeGauge(target, scope === "country" ? "APNIC country average" : `${scope} recursive DNS resolvers`);
+                    })
+            ));
+        }
+
+        function renderQminDistribution(container, rows) {
+            const topRows = Array.isArray(rows) ? rows.slice(0, 3) : [];
+            container.replaceChildren();
+            if (!topRows.length) {
+                const unavailable = document.createElement("p");
+                unavailable.textContent = "No distribution data available.";
+                container.append(unavailable);
+                return;
+            }
+            const maximumCount = Math.max(...topRows.map((row) => Number(row.count || 0)), 1);
+            topRows.forEach((row) => {
+                const count = Number(row.count || 0);
+                const bar = document.createElement("div");
+                bar.className = "qmin-detail-bar";
+                bar.title = `${resolverCountFormatter.format(count)} observations`;
+
+                const value = document.createElement("span");
+                value.textContent = String(row.value ?? "—");
+                const track = document.createElement("span");
+                track.className = "qmin-detail-bar-track";
+                const fill = document.createElement("span");
+                fill.className = "qmin-detail-bar-fill";
+                fill.style.width = `${(count / maximumCount) * 100}%`;
+                track.append(fill);
+                const percent = document.createElement("span");
+                percent.textContent = formatResolverPercent(boundedPercent(row.percent));
+                bar.append(value, track, percent);
+                container.append(bar);
+            });
+        }
+
+        function loadQminPracticeDetails(card) {
+            const labels = {
+                positive: "QMIN properly enabled",
+                negative: "QMIN too many queries possible",
+                notImplemented: "QMIN not implemented",
+                unstable: "Unstable",
+                unknown: "Unknown",
+            };
+            const scopeRequests = ["open", "closed"].map((scope) =>
+                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/qmin/${scope}`)
+                    .then((payload) => {
+                        const target = card.querySelector(`[data-qmin-scope="${scope}"]`);
+                        const scopeLabel = scope === "open" ? "Open recursive DNS resolvers" : "Closed recursive DNS resolvers";
+                        const resolverCount = Number(payload.resolver_count || 0);
+                        renderSegmentedPracticeGauge(target, {
+                            positive: resolverCount ? (Number(payload.proper_count || 0) / resolverCount) * 100 : 0,
+                            negative: resolverCount ? (Number(payload.risk_count || 0) / resolverCount) * 100 : 0,
+                            notImplemented: resolverCount ? (Number(payload.not_implemented_count || 0) / resolverCount) * 100 : 0,
+                            unstable: resolverCount ? (Number(payload.unstable_count || 0) / resolverCount) * 100 : 0,
+                            unknown: resolverCount ? (Number(payload.unknown_count || 0) / resolverCount) * 100 : 0,
+                            positiveCountLabel: countLabel(payload.proper_count),
+                            negativeCountLabel: countLabel(payload.risk_count),
+                            notImplementedCountLabel: countLabel(payload.not_implemented_count),
+                            unstableCountLabel: countLabel(payload.unstable_count),
+                            unknownCountLabel: countLabel(payload.unknown_count),
+                        }, labels, scopeLabel);
+                    })
+                    .catch(() => {
+                        const target = card.querySelector(`[data-qmin-scope="${scope}"]`);
+                        renderUnavailablePracticeGauge(target, `${scope} recursive DNS resolvers`);
+                    })
+            );
+            const distributionRequest = fetchPracticeDetail("/api/dns-resilience/global/qmin")
+                .then((payload) => {
+                    renderQminDistribution(
+                        card.querySelector('[data-qmin-distribution="max"]'),
+                        payload.qmin_max_minimise_distribution,
+                    );
+                    renderQminDistribution(
+                        card.querySelector('[data-qmin-distribution="one-lab"]'),
+                        payload.qmin_minimize_one_lab_distribution,
+                    );
+                })
+                .catch(() => {
+                    card.querySelectorAll("[data-qmin-distribution]").forEach((container) => {
+                        renderQminDistribution(container, []);
+                    });
+                });
+            return Promise.allSettled([...scopeRequests, distributionRequest]);
+        }
+
+        function renderBinaryPracticeGauge(target, payload, labels, ariaPrefix) {
+            const gauge = target.querySelector(".practice-binary-speedometer");
+            const totalCount = Number(payload.resolver_count || 0);
+            const positiveCount = Number(payload.count || 0);
+            const negativeCount = Math.max(totalCount - positiveCount, 0);
+            const positive = totalCount ? (positiveCount / totalCount) * 100 : 0;
+            const negative = Math.max(0, 100 - positive);
+            gauge.classList.remove("is-loading");
+            gauge.style.setProperty("--positive", 0);
+            requestAnimationFrame(() => gauge.style.setProperty("--positive", positive));
+            animateResolverPercent(gauge.querySelector("[data-detail-percent]"), positive);
+            const description = [
+                `${labels.positive} ${formatResolverPercent(positive)}${countLabel(positiveCount)}`,
+                `${labels.negative} ${formatResolverPercent(negative)}${countLabel(negativeCount)}`,
+            ].join(", ");
+            gauge.title = description;
+            gauge.setAttribute("aria-label", `${ariaPrefix}: ${description}`);
+        }
+
+        function loadBinaryPracticeScopes(card, options) {
+            return ["open", "closed"].map((scope) =>
+                fetchPracticeDetail(`/api/dns-resilience/global/practice-summary/${scope}/${options.metric}`)
+                    .then((payload) => {
+                        const target = card.querySelector(`[${options.scopeAttribute}="${scope}"]`);
+                        const scopeLabel = scope === "open" ? "Open recursive DNS resolvers" : "Closed recursive DNS resolvers";
+                        renderBinaryPracticeGauge(target, payload, options.labels, `${scopeLabel}, ${options.ariaLabel}`);
+                    })
+                    .catch(() => {
+                        const target = card.querySelector(`[${options.scopeAttribute}="${scope}"]`);
+                        renderUnavailablePracticeGauge(target, `${scope} recursive DNS resolvers, ${options.ariaLabel}`);
+                    })
+            );
+        }
+
+        function renderAnycastTopFive(card, rows) {
+            const tableBody = card.querySelector("[data-anycast-top-five]");
+            tableBody.replaceChildren();
+            const topRows = Array.isArray(rows) ? rows.slice(0, 5) : [];
+            if (!topRows.length) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.colSpan = 5;
+                cell.textContent = "No anycast ranking data available.";
+                row.append(cell);
+                tableBody.append(row);
+                return;
+            }
+            topRows.forEach((entry, index) => {
+                const row = document.createElement("tr");
+                const rank = document.createElement("td");
+                rank.textContent = String(index + 1);
+                const ipCell = document.createElement("td");
+                const ipLink = document.createElement("a");
+                ipLink.className = "practice-search-link";
+                ipLink.href = `/search.html?q=${encodeURIComponent(String(entry.ip || ""))}`;
+                ipLink.setAttribute("aria-label", `Search for recursive DNS resolver ${entry.ip || ""}`);
+                const ip = document.createElement("code");
+                ip.textContent = String(entry.ip || "—");
+                ipLink.append(ip);
+                ipCell.append(ipLink);
+                const company = document.createElement("td");
+                company.append(createAnycastCompanyLink(entry.company));
+                const sites = document.createElement("td");
+                sites.textContent = resolverCountFormatter.format(Number(entry.anycast_site_count || 0));
+                const countries = document.createElement("td");
+                countries.textContent = resolverCountFormatter.format(Number(entry.anycast_country_count || 0));
+                row.append(rank, ipCell, company, sites, countries);
+                tableBody.append(row);
+            });
+        }
+
+        function formatAnycastCompany(value) {
+            const company = String(value || "Unknown").trim() || "Unknown";
+            const aliases = {
+                GOOGLE: "Google",
+                CLOUDFLARENET: "Cloudflare",
+                "QUAD9-AS-1": "Quad9",
+            };
+            return aliases[company.toUpperCase()] || company;
+        }
+
+        function createAnycastCompanyLink(value) {
+            const company = String(value || "Unknown").trim() || "Unknown";
+            if (company === "Unknown") {
+                return document.createTextNode(company);
+            }
+            const link = document.createElement("a");
+            link.className = "practice-search-link";
+            link.href = `/search.html?q=${encodeURIComponent(`org:${company}`)}`;
+            link.setAttribute("aria-label", `Search for recursive DNS resolvers operated by ${formatAnycastCompany(company)}`);
+            link.textContent = formatAnycastCompany(company);
+            return link;
+        }
+
+        function renderAnycastCompanyTopFive(card, rows) {
+            const tableBody = card.querySelector("[data-anycast-company-top-five]");
+            tableBody.replaceChildren();
+            const topRows = Array.isArray(rows) ? rows.slice(0, 5) : [];
+            if (!topRows.length) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.colSpan = 4;
+                cell.textContent = "No anycast company ranking data available.";
+                row.append(cell);
+                tableBody.append(row);
+                return;
+            }
+            topRows.forEach((entry, index) => {
+                const row = document.createElement("tr");
+                const rank = document.createElement("td");
+                rank.textContent = String(index + 1);
+                const company = document.createElement("td");
+                company.append(createAnycastCompanyLink(entry.company));
+                const sites = document.createElement("td");
+                sites.textContent = resolverCountFormatter.format(Number(entry.anycast_site_count || 0));
+                const ipCount = document.createElement("td");
+                ipCount.textContent = resolverCountFormatter.format(Number(entry.anycast_ip_count || 0));
+                row.append(rank, company, sites, ipCount);
+                tableBody.append(row);
+            });
+        }
+
+        function loadAnycastPracticeDetails(card) {
+            const scopeRequests = loadBinaryPracticeScopes(card, {
+                metric: "anycast",
+                scopeAttribute: "data-anycast-scope",
+                ariaLabel: "anycast deployment",
+                labels: { positive: "Anycast enabled", negative: "Not anycast" },
+            });
+            const rankingRequest = fetchPracticeDetail("/api/dns-resilience/global/anycast")
+                .then((payload) => {
+                    renderAnycastTopFive(card, payload.top_anycast_resolvers);
+                    renderAnycastCompanyTopFive(card, payload.top_anycast_companies);
+                })
+                .catch(() => {
+                    renderAnycastTopFive(card, []);
+                    renderAnycastCompanyTopFive(card, []);
+                });
+            return Promise.allSettled([...scopeRequests, rankingRequest]);
+        }
+
+        function loadDualStackPracticeDetails(card) {
+            const scopeRequests = loadBinaryPracticeScopes(card, {
+                metric: "dual-stack",
+                scopeAttribute: "data-dual-stack-scope",
+                ariaLabel: "dual stack connectivity",
+                labels: { positive: "Dual stack", negative: "Single stack" },
+            });
+            return Promise.allSettled(scopeRequests);
+        }
+
+        function renderManrsPracticeGauge(target, payload) {
+            const gauge = target.querySelector(".practice-binary-speedometer");
+            const countElement = target.querySelector("[data-manrs-entity-count]");
+            const entityType = String(payload.entity_type || "").toLowerCase();
+            const entityCount = Number(payload.entity_count || 0);
+            const scoredEntityCount = Number(payload.scored_entity_count || 0);
+            const entityNoun = entityType === "asn"
+                ? (entityCount === 1 ? "AS" : "ASes")
+                : (entityCount === 1 ? "economy" : "economies");
+            const scopeLabel = payload.scope === "open" ? "open" : "closed";
+            const countLabelText = `${resolverCountFormatter.format(entityCount)} ${entityNoun}`;
+            const groupLabel = `${entityNoun} with ${scopeLabel} recursive DNS resolvers`;
+            countElement.textContent = countLabelText;
+
+            if (!scoredEntityCount) {
+                renderUnavailablePracticeGauge(
+                    target,
+                    `${countLabelText} with ${scopeLabel} recursive DNS resolvers; no MANRS readiness data`,
+                );
+                gauge.title = `${countLabelText}; no MANRS readiness data available`;
+                return;
+            }
+
+            const readiness = boundedPercent(payload.average_readiness_pc);
+            gauge.classList.remove("is-loading");
+            gauge.style.setProperty("--positive", 0);
+            requestAnimationFrame(() => gauge.style.setProperty("--positive", readiness));
+            animateResolverPercent(gauge.querySelector("[data-detail-percent]"), readiness);
+            const scoredNoun = entityType === "asn"
+                ? (scoredEntityCount === 1 ? "AS" : "ASes")
+                : (scoredEntityCount === 1 ? "economy" : "economies");
+            const coverageLabel = `${resolverCountFormatter.format(scoredEntityCount)} ${scoredNoun} with MANRS data`;
+            const description = `${groupLabel}: average MANRS readiness ${formatResolverPercent(readiness)}; ${countLabelText}; ${coverageLabel}`;
+            gauge.title = description;
+            gauge.setAttribute("aria-label", description);
+        }
+
+        function loadManrsPracticeDetails(card) {
+            const requests = [];
+            ["asn", "country"].forEach((entityType) => {
+                ["open", "closed"].forEach((scope) => {
+                    const target = card.querySelector(
+                        `[data-manrs-entity="${entityType}"][data-manrs-scope="${scope}"]`,
+                    );
+                    requests.push(
+                        fetchPracticeDetail(
+                            `/api/dns-resilience/global/practice-details/manrs/${entityType}/${scope}`,
+                        )
+                            .then((payload) => renderManrsPracticeGauge(target, payload))
+                            .catch(() => {
+                                const entityLabel = entityType === "asn" ? "AS" : "economy";
+                                renderUnavailablePracticeGauge(
+                                    target,
+                                    `${entityLabel} MANRS readiness for ${scope} recursive DNS resolvers`,
+                                );
+                                target.querySelector("[data-manrs-entity-count]").textContent = "Unavailable";
+                            }),
+                    );
+                });
+            });
+            return Promise.allSettled(requests);
+        }
+
+        function renderBcp38PracticeGauge(target, payload, scope) {
+            const resolverCount = Number(payload.resolver_count || 0);
+            const allowingCount = Number(payload.allowing_resolver_count || 0);
+            const blockingCount = Number(payload.blocking_resolver_count || 0);
+            const unknownCount = Number(payload.unknown_resolver_count || 0);
+            const allowingPercent = resolverCount ? (allowingCount / resolverCount) * 100 : 0;
+            const blockingPercent = resolverCount ? (blockingCount / resolverCount) * 100 : 0;
+            const unknownPercent = resolverCount ? (unknownCount / resolverCount) * 100 : 0;
+            const scopeLabel = scope === "open" ? "Open" : "Closed";
+
+            renderSegmentedPracticeGauge(target, {
+                positive: allowingPercent,
+                negative: blockingPercent,
+                unknown: unknownPercent,
+                positiveCountLabel: countLabel(allowingCount),
+                negativeCountLabel: countLabel(blockingCount),
+                unknownCountLabel: countLabel(unknownCount),
+            }, {
+                positive: "Network allows spoofing",
+                negative: "Network actively blocks spoofing",
+                unknown: "Unknown",
+            }, `${scopeLabel} recursive DNS resolvers`);
+
+            const gauge = target.querySelector(".bcp38-segmented-speedometer");
+            const evidenceDescription = [
+                `${resolverCountFormatter.format(Number(payload.caida_allowing_asn_count || 0))} CAIDA allowing ASes`,
+                `${resolverCountFormatter.format(Number(payload.transparent_forwarder_asn_count || 0))} transparent-forwarder ASes`,
+                `${resolverCountFormatter.format(Number(payload.caida_blocking_asn_count || 0))} CAIDA blocking ASes`,
+            ].join(", ");
+            gauge.title = `${gauge.title}; evidence inventory: ${evidenceDescription}`;
+            gauge.setAttribute("aria-label", `${gauge.getAttribute("aria-label")}; evidence inventory: ${evidenceDescription}`);
+        }
+
+        function loadBcp38PracticeDetails(card) {
+            return Promise.allSettled(["open", "closed"].map((scope) =>
+                fetchPracticeDetail(`/api/dns-resilience/global/practice-details/bcp38/${scope}`)
+                    .then((payload) => {
+                        const target = card.querySelector(`[data-bcp38-scope="${scope}"]`);
+                        renderBcp38PracticeGauge(target, payload, scope);
+                    })
+                    .catch(() => {
+                        const target = card.querySelector(`[data-bcp38-scope="${scope}"]`);
+                        renderUnavailablePracticeGauge(
+                            target,
+                            `${scope} recursive DNS resolver BCP38 evidence`,
+                        );
+                    })
+            ));
+        }
+
+        const protocolColors = {
+            doudp: "#efb6b6",
+            dotcp: "#e4939b",
+            doh: "#7386bd",
+            "doh1.1": "#8d9dca",
+            doh3: "#a6b2d7",
+            dot: "#536ba9",
+            doq: "#334985",
+        };
+        const protocolLabels = {
+            doudp: "DoUDP",
+            dotcp: "DoTCP",
+            doh: "DoH",
+            "doh1.1": "DoH 1.1",
+            doh3: "DoH3",
+            dot: "DoT",
+            doq: "DoQ",
+        };
+        const protocolBlueFallbacks = ["#405791", "#5d70a9", "#7889bb", "#99a6d0"];
+
+        function protocolColor(protocol, index) {
+            return protocolColors[protocol] || protocolBlueFallbacks[index % protocolBlueFallbacks.length];
+        }
+
+        function renderProtocolRings(card, payload) {
+            const resolverCount = Number(payload.resolver_count || 0);
+            const rows = Array.isArray(payload.protocols)
+                ? payload.protocols.filter((row) => Number(row.tested_count ?? row.count ?? 0) > 0)
+                : [];
+            const gauge = card.querySelector(".protocol-multiring-speedometer");
+            const arcGroup = card.querySelector("[data-protocol-arcs]");
+            const legend = card.querySelector("[data-protocol-legend]");
+            arcGroup.replaceChildren();
+            legend.replaceChildren();
+
+            if (!rows.length || !resolverCount) {
+                throw new Error("No protocol data available");
+            }
+
+            const svgNamespace = "http://www.w3.org/2000/svg";
+            const radiusStep = rows.length > 1 ? Math.min(15, 75 / (rows.length - 1)) : 0;
+            const descriptions = [];
+            rows.forEach((row, index) => {
+                const protocol = String(row.protocol || "unknown").trim().toLowerCase();
+                const count = Number(row.count || 0);
+                const testedCount = Number(row.tested_count ?? count);
+                const unsupportedCount = Number(row.unsupported_count || 0);
+                const percentage = (count / resolverCount) * 100;
+                const radius = 125 - (index * radiusStep);
+                const pathData = `M ${150 - radius} 145 A ${radius} ${radius} 0 0 1 ${150 + radius} 145`;
+                const color = protocolColor(protocol, index);
+                const label = protocolLabels[protocol] || protocol;
+                const exactDescription = `${label}: ${formatResolverPercent(percentage)} (${resolverCountFormatter.format(count)} supported, ${resolverCountFormatter.format(unsupportedCount)} tested but not supported, ${resolverCountFormatter.format(testedCount)} tested)`;
+
+                const track = document.createElementNS(svgNamespace, "path");
+                track.setAttribute("class", "protocol-ring-track");
+                track.setAttribute("d", pathData);
+                track.setAttribute("pathLength", "100");
+                const value = document.createElementNS(svgNamespace, "path");
+                value.setAttribute("class", "protocol-ring-value");
+                value.setAttribute("d", pathData);
+                value.setAttribute("pathLength", "100");
+                value.style.stroke = color;
+                value.style.strokeDasharray = "0 100";
+                const title = document.createElementNS(svgNamespace, "title");
+                title.textContent = exactDescription;
+                value.append(title);
+                arcGroup.append(track, value);
+                requestAnimationFrame(() => {
+                    value.style.strokeDasharray = `${Math.min(percentage, 100)} 100`;
+                });
+
+                const legendItem = document.createElement("div");
+                legendItem.className = "protocol-legend-item";
+                legendItem.title = `${resolverCountFormatter.format(count)} supported; ${resolverCountFormatter.format(unsupportedCount)} tested but not supported; ${resolverCountFormatter.format(testedCount)} tested`;
+                const swatch = document.createElement("span");
+                swatch.className = "protocol-legend-swatch";
+                swatch.style.background = color;
+                const protocolName = document.createElement("code");
+                protocolName.textContent = label;
+                const protocolPercent = document.createElement("span");
+                protocolPercent.textContent = formatResolverPercent(percentage);
+                legendItem.append(swatch, protocolName, protocolPercent);
+                legend.append(legendItem);
+                descriptions.push(exactDescription);
+            });
+
+            gauge.classList.remove("is-loading");
+            gauge.querySelector("[data-protocol-type-count]").textContent = resolverCountFormatter.format(rows.length);
+            gauge.title = descriptions.join(", ");
+            gauge.setAttribute("aria-label", `Recursive DNS resolver protocol support: ${descriptions.join(", ")}`);
+        }
+
+        function renderProtocolPortBars(card, payload) {
+            const resolverCount = Number(payload.resolver_count || 0);
+            const rows = Array.isArray(payload.ports)
+                ? payload.ports.filter((row) => Number(row.tested_count ?? row.count ?? 0) > 0)
+                : [];
+            const container = card.querySelector("[data-protocol-port-bars]");
+            container.replaceChildren();
+            if (!rows.length || !resolverCount) {
+                const unavailable = document.createElement("p");
+                unavailable.textContent = "No port data available.";
+                container.append(unavailable);
+                return;
+            }
+            const maximumCount = Math.max(...rows.map((row) => Number(row.count || 0)), 1);
+            rows.forEach((row) => {
+                const count = Number(row.count || 0);
+                const testedCount = Number(row.tested_count ?? count);
+                const unsupportedCount = Number(row.unsupported_count || 0);
+                const percentage = (count / resolverCount) * 100;
+                const bar = document.createElement("div");
+                bar.className = "protocol-port-bar";
+                bar.title = `${resolverCountFormatter.format(count)} supported; ${resolverCountFormatter.format(unsupportedCount)} tested but not supported; ${resolverCountFormatter.format(testedCount)} tested`;
+                const port = document.createElement("a");
+                port.className = "practice-search-link";
+                port.href = `/search.html?q=${encodeURIComponent(`port:${row.port}`)}`;
+                port.setAttribute("aria-label", `Search for recursive DNS resolvers using port ${row.port}`);
+                port.textContent = `Port ${row.port}`;
+                const track = document.createElement("span");
+                track.className = "protocol-port-bar-track";
+                const fill = document.createElement("span");
+                fill.className = "protocol-port-bar-fill";
+                fill.style.width = `${(count / maximumCount) * 100}%`;
+                track.append(fill);
+                const percent = document.createElement("span");
+                percent.textContent = formatResolverPercent(percentage);
+                bar.append(port, track, percent);
+                container.append(bar);
+            });
+        }
+
+        function loadProtocolPracticeDetails(card) {
+            return fetchPracticeDetail("/api/dns-resilience/global/protocols")
+                .then((payload) => {
+                    renderProtocolRings(card, payload);
+                    renderProtocolPortBars(card, payload);
+                })
+                .catch(() => {
+                    const gauge = card.querySelector(".protocol-multiring-speedometer");
+                    gauge.classList.remove("is-loading");
+                    gauge.querySelector("[data-protocol-type-count]").textContent = "—";
+                    gauge.setAttribute("aria-label", "Recursive DNS resolver protocol support: unavailable");
+                    card.querySelector("[data-protocol-legend]").textContent = "Protocol data unavailable.";
+                    card.querySelector("[data-protocol-port-bars]").textContent = "Port data unavailable.";
+                });
+        }
+
+        const practiceDetailConfig = {
+            dnssec: { label: "DNSSEC validation", loader: loadDnssecPracticeDetails },
+            qmin: { label: "QMIN implementation", loader: loadQminPracticeDetails },
+            bcp38: { label: "BCP38 compliance", loader: loadBcp38PracticeDetails },
+            manrs: { label: "MANRS compliance", loader: loadManrsPracticeDetails },
+            anycast: { label: "anycast", loader: loadAnycastPracticeDetails },
+            "dual-stack": { label: "dual stack connectivity", loader: loadDualStackPracticeDetails },
+            protocols: { label: "secure protocol", loader: loadProtocolPracticeDetails },
+        };
+
+        document.querySelectorAll(".practice-card-toggle").forEach((button) => {
+            button.addEventListener("click", () => {
+                const card = button.closest("[data-practice-card]");
+                const panel = document.getElementById(button.getAttribute("aria-controls"));
+                const detailConfig = practiceDetailConfig[card.dataset.practiceCard];
+                const isExpanded = button.getAttribute("aria-expanded") === "true";
+                button.setAttribute("aria-expanded", String(!isExpanded));
+                button.querySelector(".visually-hidden").textContent = `${isExpanded ? "Show" : "Hide"} ${detailConfig.label} details`;
+                card.classList.toggle("practice-card-expanded", !isExpanded);
+                panel.hidden = isExpanded;
+
+                if (!isExpanded && card.dataset.detailsLoaded !== "true") {
+                    card.dataset.detailsLoaded = "true";
+                    panel.querySelector("[data-detail-loading]").hidden = true;
+                    panel.querySelector("[data-detail-content]").hidden = false;
+                    detailConfig.loader(card);
+                }
+            });
+        });
+
+        if ("IntersectionObserver" in window && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            practiceCards.forEach((card) => card.classList.add("practice-card-animate"));
+
+            const practiceObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("is-visible");
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.16 });
+
+            practiceCards.forEach((card) => practiceObserver.observe(card));
+        }
+    </script>
 {% endblock %}

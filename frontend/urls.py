@@ -7,4 +7,6 @@ urlpatterns = [
     path("resolver.html", views.resolver_dashboard, name="resolver-dashboard-html"),
     path("search/", views.search, name="search"),
     path("search.html", views.search, name="search-html"),
+    path("compare/", views.compare, name="compare"),
+    path("compare.html", views.compare, name="compare-html"),
 ]

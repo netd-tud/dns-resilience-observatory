@@ -22,7 +22,7 @@
         <section class="dashboard-view" id="dashboard-view">
             <section class="query-card">
                 <div class="query-grid">
-                    <input id="query-input" type="text" placeholder="Query by IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter" />
+                    <input id="query-input" type="text" placeholder="Query by IP, domain, prefix, ASN, country, organization, protocol, port, resolver scope, QMIN, or spoofing filter" />
                     <button id="search-button" type="button">Run Lookup</button>
                 </div>
                 <div class="examples">
@@ -31,8 +31,12 @@
                     <span class="chip" data-value="9.9.9.0/24">9.9.9.0/24</span>
                     <span class="chip" data-value="AS3320">AS3320</span>
                     <span class="chip" data-value="DE">DE</span>
+                    <span class="chip" data-value="org:Google">org:Google</span>
+                    <span class="chip" data-value="resolver:closed">resolver:closed</span>
+                    <span class="chip" data-value="resolver:open">resolver:open</span>
                     <span class="chip" data-value="qmin:enabled">qmin:enabled</span>
                     <span class="chip" data-value="qmin:disabled">qmin:disabled</span>
+                    <span class="chip" data-value="port:53">port:53</span>
                     <span class="chip" data-value="spoofing:countries">spoofing:countries</span>
                     <span class="chip" data-value="spoofing:ases">spoofing:ases</span>
                 </div>
@@ -264,6 +268,26 @@
             `;
         }
 
+        function manrsGauge(payload, contextLabel) {
+            if (!payload || !payload.available) {
+                return `
+                    <div class="gauge-card">
+                        <div class="gauge" style="--value: 0;">
+                            <div class="gauge-inner"><span>—</span></div>
+                        </div>
+                        <div>
+                            <div class="metric-label">MANRS Compliance Score</div>
+                            <div class="metric-subvalue">No MANRS readiness data for this ${contextLabel.toLowerCase()}.</div>
+                        </div>
+                    </div>
+                `;
+            }
+            const metricCount = Number(payload.metric_count || 0);
+            const targetLabel = String(payload.target || contextLabel);
+            const detail = `${contextLabel} readiness for ${targetLabel}; average of ${metricCount}/5 available MANRS metrics.`;
+            return gauge("MANRS Compliance Score", payload.average_readiness_pc, detail);
+        }
+
         function ratioBar(label, firstLabel, firstValue, secondLabel, secondValue) {
             const total = Math.max(Number(firstValue || 0) + Number(secondValue || 0), 1);
             const firstPc = (Number(firstValue || 0) / total) * 100;
@@ -355,6 +379,9 @@
                 return null;
             }
             const normalized = trimmed.toLowerCase();
+            if (["resolver:closed", "resolver:open", "scope:closed", "scope:open", "closed", "open"].includes(normalized)) {
+                return "resolver_scope";
+            }
             if (normalized === "qmin:enabled" || normalized === "qmin:disabled") {
                 return "qmin";
             }
@@ -363,6 +390,12 @@
             }
             if (normalized === "spoofing:ases") {
                 return "spoofing_asns";
+            }
+            if (/^(?:org|company):\s*.+$/i.test(trimmed)) {
+                return "organization";
+            }
+            if (/^port:\d{1,5}$/.test(normalized)) {
+                return "port";
             }
             if (trimmed.includes("/")) {
                 return "prefix";
@@ -386,7 +419,7 @@
             if (/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.?$/.test(trimmed)) {
                 return "domain";
             }
-            return null;
+            return "organization";
         }
 
         function singleAddressFromPrefix(value) {
@@ -417,11 +450,25 @@
             if (type === "country") {
                 return `${apiBaseUrl}/api/dns-resilience/country/${encodeURIComponent(query.toUpperCase())}`;
             }
+            if (type === "organization") {
+                const explicitFilter = query.match(/^(?:org|company):\s*(.+)$/i);
+                const organization = explicitFilter ? explicitFilter[1].trim() : query.trim();
+                return `${apiBaseUrl}/api/dns-resilience/organization?organization=${encodeURIComponent(organization)}`;
+            }
             if (type === "domain") {
                 return `${apiBaseUrl}/api/dns-resilience/domain/${encodeURIComponent(query)}`;
             }
             if (type === "protocol") {
                 return `${apiBaseUrl}/api/dns-resilience/protocol/${encodeURIComponent(query.toLowerCase())}`;
+            }
+            if (type === "port") {
+                const port = query.toLowerCase().split(":", 2)[1];
+                return `${apiBaseUrl}/api/dns-resilience/port/${encodeURIComponent(port)}`;
+            }
+            if (type === "resolver_scope") {
+                const normalized = query.toLowerCase();
+                const scope = normalized.includes(":") ? normalized.split(":", 2)[1] : normalized;
+                return `${apiBaseUrl}/api/dns-resilience/scope/${scope}?limit=1000`;
             }
             if (type === "qmin") {
                 const state = query.toLowerCase().split(":", 2)[1];
@@ -454,13 +501,17 @@
                         return clean ? `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(clean)}">${clean}</a>` : "";
                     }).filter(Boolean).join(", ")
                     : "-";
+                const organization = resolver.org_short || resolver.org;
+                const organizationCell = organization
+                    ? `<a class="resolver-link" href="/search.html?q=${encodeURIComponent(`org:${organization}`)}">${organization}</a>`
+                    : "-";
                 return `
                     <tr>
                         <td>${ipCell}</td>
                         <td>${resolver.asn ?? "-"}</td>
                         <td>${resolver.bgp_prefix ?? "-"}</td>
                         <td>${resolver.country ?? "-"}</td>
-                        <td>${resolver.org_short || resolver.org || "-"}</td>
+                        <td>${organizationCell}</td>
                         <td>${domainCell}</td>
                         <td>${serviceCell}</td>
                         <td>${resolver.is_public ? "yes" : "no"}</td>
@@ -698,6 +749,7 @@
             const transparentForwarders = Number(payload.transparent_forwarder_count || 0);
             const recursiveForwarderPc = forwarderTotal ? (recursiveForwarders / forwarderTotal) * 100 : 0;
             const scopeLabel = isAsn ? "AS overview" : "Country overview";
+            const manrsContextLabel = isAsn ? "ASN" : "Country";
             const dnssecCard = isCountry
                 ? `<div id="scoped-dnssec-card">${gauge("DNSSEC validating", 0, loadingText())}</div>`
                 : "";
@@ -716,6 +768,7 @@
                         <div id="scoped-anycast-card">${summaryCard("Anycast", anycastCount, "Anycast", anycastCount, "Other", anycastOther, anycastPc, loadingText())}</div>
                         <div id="scoped-qmin-card">${summaryCard("QMIN", 0, "Yes", 0, "No", 0, 0, loadingText())}</div>
                         <div id="scoped-spoofing-card">${spoofingCard(0, 0, 0, 0)}</div>
+                        <div id="scoped-manrs-card">${gauge("MANRS Compliance Score", 0, loadingText())}</div>
                         ${dnssecCard}
                     </div>
                     <div class="qmin-scoped-details" id="scoped-qmin-details">${loadingText()}</div>
@@ -732,7 +785,7 @@
 
             let completed = 0;
             let failed = 0;
-            const total = isCountry ? 4 : 3;
+            const total = isCountry ? 5 : 4;
             const markDone = () => {
                 completed += 1;
                 if (completed === total) {
@@ -786,6 +839,13 @@
                     );
                 })
                 .catch(() => { failed += 1; setLoadingError("scoped-spoofing-card"); })
+                .finally(markDone);
+
+            fetchApiPath(`${targetPath}/manrs`)
+                .then((manrs) => {
+                    setHtml("scoped-manrs-card", manrsGauge(manrs, manrsContextLabel));
+                })
+                .catch(() => { failed += 1; setLoadingError("scoped-manrs-card"); })
                 .finally(markDone);
 
             if (isCountry) {
@@ -842,6 +902,125 @@
                 });
         }
 
+        function upstreamRankedList(rows, entityType) {
+            const sortedRows = [...(rows || [])].sort((left, right) =>
+                Number(right.count || 0) - Number(left.count || 0)
+                || String(left.country ?? left.asn ?? "").localeCompare(String(right.country ?? right.asn ?? ""))
+            );
+            if (!sortedRows.length) {
+                return `<div class="upstream-forwarder-empty">No location data available.</div>`;
+            }
+            return `
+                <div class="upstream-forwarder-list">
+                    ${sortedRows.map((row) => {
+                        const value = entityType === "country" ? row.country : `AS${row.asn}`;
+                        return `
+                            <a class="upstream-forwarder-row" href="/search.html?q=${encodeURIComponent(value)}">
+                                <span>${value}</span>
+                                <strong>${formatNumber(row.count)}</strong>
+                            </a>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function upstreamForwarderIpList(rows) {
+            if (!rows.length) {
+                return `<div class="upstream-forwarder-empty">No forwarder IP addresses found.</div>`;
+            }
+            return `
+                <div class="upstream-forwarder-list">
+                    ${rows.map((forwarder) => `
+                        <a class="upstream-forwarder-row upstream-forwarder-ip-row" href="/search.html?q=${encodeURIComponent(forwarder.ip)}">
+                            <code>${forwarder.ip}</code>
+                            <span>${forwarder.type || "Forwarder"}</span>
+                        </a>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function renderUpstreamForwarderCards(container, payload) {
+            const forwarders = container._forwarderRows || [];
+            const loadedCount = forwarders.length;
+            const totalForwarders = Number(payload.total_forwarders || 0);
+            const hasMore = loadedCount < totalForwarders;
+            container.innerHTML = `
+                <section class="upstream-forwarder-section" aria-labelledby="${container.id}-title">
+                    <div class="upstream-forwarder-heading">
+                        <div>
+                            <div class="resolver-panel-title">Configured Upstream Relationship</div>
+                            <h2 id="${container.id}-title">Forwarders Using This Closed Resolver</h2>
+                        </div>
+                        <span>${formatNumber(totalForwarders)} forwarder IP address${totalForwarders === 1 ? "" : "es"}</span>
+                    </div>
+                    <div class="upstream-forwarder-grid">
+                        <article class="upstream-forwarder-card">
+                            <h3>Forwarder IP Addresses</h3>
+                            <p>Addresses configured with this recursive DNS resolver as an upstream.</p>
+                            ${upstreamForwarderIpList(forwarders)}
+                            ${hasMore ? `<button class="upstream-forwarder-more" type="button">Load More Addresses</button>` : ""}
+                        </article>
+                        <article class="upstream-forwarder-card">
+                            <h3>Countries</h3>
+                            <p>Ranked by the number of associated forwarders.</p>
+                            ${upstreamRankedList(payload.countries, "country")}
+                        </article>
+                        <article class="upstream-forwarder-card">
+                            <h3>ASes</h3>
+                            <p>Ranked by the number of associated forwarders.</p>
+                            ${upstreamRankedList(payload.asns, "asn")}
+                        </article>
+                    </div>
+                </section>
+            `;
+            container.querySelector(".upstream-forwarder-more")?.addEventListener("click", () => {
+                loadUpstreamForwarderCards(
+                    container.id,
+                    payload.resolver_ip,
+                    Number(payload.page || 1) + 1,
+                );
+            });
+        }
+
+        async function loadUpstreamForwarderCards(containerId, resolverIp, page = 1) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                return;
+            }
+            if (page === 1) {
+                container.innerHTML = `<div class="upstream-forwarder-loading">${loadingText()}</div>`;
+                container._forwarderRows = [];
+            } else {
+                const button = container.querySelector(".upstream-forwarder-more");
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = "Loading…";
+                }
+            }
+            try {
+                const payload = await fetchApiPath(
+                    `/api/dns-resilience/resolver/${encodeURIComponent(resolverIp)}/forwarders?page=${page}&page_size=100`,
+                );
+                container._forwarderRows = [
+                    ...(container._forwarderRows || []),
+                    ...(payload.forwarders || []),
+                ];
+                renderUpstreamForwarderCards(container, payload);
+            } catch (error) {
+                if (page === 1) {
+                    container.innerHTML = `<div class="empty">Could not load configured upstream forwarders.</div>`;
+                } else {
+                    const button = container.querySelector(".upstream-forwarder-more");
+                    if (button) {
+                        button.disabled = false;
+                        button.textContent = "Try Loading More Again";
+                    }
+                }
+            }
+        }
+
         function renderResolverSummary(summary) {
             const isDomainSummary = Boolean(summary.is_domain_summary);
             const isIpv6Address = (value) => String(value || "").includes(":");
@@ -859,6 +1038,9 @@
             const forwarderGraphId = `forwarder-${Date.now()}`;
             const forwarderCountryTabId = `forwarder-country-tab-${Date.now()}`;
             const forwarderAsnTabId = `forwarder-asn-tab-${Date.now()}`;
+            const resolverManrsScoreId = `resolver-manrs-score-${Date.now()}`;
+            const resolverManrsDetailId = `resolver-manrs-detail-${Date.now()}`;
+            const upstreamForwarderCardsId = `upstream-forwarders-${Date.now()}`;
 
             const mapId = `map-${Date.now()}`;
             const observationTimestamp = summary.last_observation_ts || summary.last_update_ts || summary.spoofing_last_update_ts;
@@ -895,14 +1077,25 @@
                 .split(",")
                 .map((service) => service.trim())
                 .filter(Boolean);
-            const serviceHtml = resolverTable(services.map((service) => {
-                const [protocol, port] = service.split(":");
-                const serviceLabel = service.toLowerCase();
+            const protocolResults = (summary.resolver_protocol_results || []).length
+                ? summary.resolver_protocol_results
+                : services.map((service) => {
+                    const [protocol, port] = service.split(":");
+                    return { protocol, port, supported: true, last_update_ts: null };
+                });
+            const serviceHtml = resolverTable(protocolResults.map((result) => {
+                const protocol = String(result.protocol || "");
+                const port = result.port == null ? null : String(result.port);
+                const statusLabel = result.supported ? "Supported" : "Not supported";
+                const statusClass = result.supported ? "is-supported" : "is-unsupported";
+                const updatedAt = result.last_update_ts
+                    ? ` title="Last tested: ${new Date(result.last_update_ts).toLocaleString()}"`
+                    : "";
                 return `
-                    <div class="resolver-table-row">
-                        <span class="resolver-table-primary">${(protocol || service).toUpperCase()}</span>
-                        <span class="resolver-table-secondary">${port ? `Port ${port}` : "-"}</span>
-                        ${tableLink(serviceLabel, "View")}
+                    <div class="resolver-table-row"${updatedAt}>
+                        <span class="resolver-table-primary">${protocol.toUpperCase() || "-"}</span>
+                        <span class="resolver-table-secondary">${port ? tableLink(`port:${port}`, `Port ${port}`) : "-"}</span>
+                        <span class="protocol-support-state ${statusClass}">${statusLabel}</span>
                     </div>
                 `;
             }));
@@ -935,6 +1128,16 @@
             const spoofingReceived = Number(summary.spoofing_received_count || 0) > 0;
             const spoofingBlocked = Number(summary.spoofing_blocked_count || 0) > 0;
             const spoofingState = spoofingReceived ? "Spoofing detected" : (spoofingBlocked ? "No spoofing detected" : "Unknown");
+            const resolverManrsCard = isDomainSummary ? "" : `
+                <div class="resolver-info-card">
+                    <div class="resolver-info-label">MANRS Compliance Score</div>
+                    <div class="resolver-info-value" id="${resolverManrsScoreId}">${loadingText()}</div>
+                    <div class="metric-subvalue" id="${resolverManrsDetailId}">Readiness of the corresponding ASN.</div>
+                </div>
+            `;
+            const showUpstreamForwarders = !isDomainSummary
+                && summary.resolver_found
+                && summary.resolver_is_public === false;
 
 
             results.innerHTML = `
@@ -943,7 +1146,7 @@
                         <div class="tile-title resolver-lookup-title">${summary.resolver_ip}</div>
                         <div class="resolver-title-meta">${titleObservation}</div>
                     </div>
-                    <div class="resolver-info-grid">
+                    <div class="resolver-info-grid ${isDomainSummary ? "" : "resolver-info-grid-manrs"}">
                         <div class="resolver-info-card resolver-public-card">
                             <div class="resolver-info-label">Is public</div>
                             <div class="resolver-public-state">
@@ -956,6 +1159,7 @@
                         ${resolverInfoCard(isDomainSummary ? "BGP prefixes" : "BGP prefix", resolverPrefix)}
                         ${resolverInfoCard("Domain names", domainHtml)}
                         ${resolverInfoCard(isDomainSummary ? "Organizations" : "Organization", summary.resolver_org)}
+                        ${resolverManrsCard}
                     </div>
                     <div class="resolver-secondary-grid">
                         <div class="resolver-panel">
@@ -1043,6 +1247,7 @@
                             </div>
                         </div>
                     </div>
+                    ${showUpstreamForwarders ? `<div id="${upstreamForwarderCardsId}"></div>` : ""}
                     <div class="map-wrap" id="${mapId}"></div>
                     <div class="graph-section">
                         <div class="tile-header">
@@ -1056,6 +1261,41 @@
                     </div>
                 </div>
             `;
+
+            if (!isDomainSummary) {
+                fetchApiPath(`/api/dns-resilience/resolver/${encodeURIComponent(summary.resolver_ip)}/manrs`)
+                    .then((manrs) => {
+                        const score = document.getElementById(resolverManrsScoreId);
+                        const detail = document.getElementById(resolverManrsDetailId);
+                        if (!score || !detail) {
+                            return;
+                        }
+                        if (manrs.available) {
+                            score.textContent = formatPercent(manrs.average_readiness_pc);
+                            detail.textContent = `Readiness inherited from ${manrs.source_entity}; average of ${Number(manrs.metric_count || 0)}/5 available MANRS metrics.`;
+                        } else {
+                            score.innerHTML = `<span class="unknown-badge">UNKNOWN</span>`;
+                            detail.textContent = manrs.source_entity
+                                ? `No MANRS readiness data for ${manrs.source_entity}.`
+                                : "No ASN is mapped to this recursive DNS resolver.";
+                        }
+                    })
+                    .catch(() => {
+                        const score = document.getElementById(resolverManrsScoreId);
+                        const detail = document.getElementById(resolverManrsDetailId);
+                        if (score) {
+                            score.innerHTML = `<span class="unknown-badge">UNKNOWN</span>`;
+                        }
+                        if (detail) {
+                            detail.textContent = "Failed to load MANRS ASN readiness.";
+                        }
+                    });
+            }
+
+            if (showUpstreamForwarders) {
+                loadUpstreamForwarderCards(upstreamForwarderCardsId, summary.resolver_ip);
+                document.getElementById(forwarderGraphId)?.closest(".graph-section")?.remove();
+            }
 
             if (isDomainSummary) {
                 document.getElementById(forwarderGraphId)?.closest(".graph-section")?.remove();
@@ -1111,11 +1351,11 @@
                                     thickness: 20,
                                     color: [
                                         ...entries.map(() => "#d9f2ef"),
-                                        "#5BC2C2",
+                                        "#7386bd",
                                     ],
                                     line: {
                                         color: [
-                                            ...entries.map(() => "#5BC2C2"),
+                                            ...entries.map(() => "#7386bd"),
                                             "#4aa9a9",
                                         ],
                                         width: 1,
@@ -1125,7 +1365,7 @@
                                     source: sources,
                                     target: targets,
                                     value: values,
-                                    color: values.map(() => "rgba(91, 194, 194, 0.35)"),
+                                    color: values.map(() => "rgba(115, 134, 189, 0.35)"),
                                 },
                             },
                         ];
@@ -1190,8 +1430,8 @@
                 const radius = Math.min(18, 4 + Math.log10(siteCount + 1) * 6);
                 L.circleMarker([country.latitude, country.longitude], {
                     radius,
-                    fillColor: "#5BC2C2",
-                    color: "#5BC2C2",
+                    fillColor: "#7386bd",
+                    color: "#7386bd",
                     weight: 1,
                     fillOpacity: 0.7,
                 })
@@ -1220,7 +1460,7 @@
                 const radius = Math.min(28, 5 + Math.log10(count + 1) * 7);
                 L.circleMarker([country.latitude, country.longitude], {
                     radius,
-                    fillColor: publicPc >= 50 ? "#2fb48f" : "#f0a34a",
+                    fillColor: publicPc >= 50 ? "#334985" : "#7386bd",
                     color: "#26364f",
                     weight: 1,
                     fillOpacity: 0.72,
@@ -1235,7 +1475,7 @@
             const query = singleAddressFromPrefix(rawQuery) || rawQuery;
             const type = detectQueryType(query);
             if (!type) {
-                setStatus("Enter an IP, domain, prefix, ASN, country, protocol, QMIN, or spoofing filter.", "error");
+                setStatus("Enter an IP, domain, prefix, ASN, country, organization, protocol, resolver scope, QMIN, or spoofing filter.", "error");
                 return;
             }
 

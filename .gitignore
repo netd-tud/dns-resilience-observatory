@@ -156,6 +156,7 @@ activemq-data/
 *.conf
 !nginx/default.conf
 !*.conf.example
+!data_gathering/tasks/rpki/rpki.conf
 .envrc
 
 # Local data exports/imports

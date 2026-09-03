@@ -1109,8 +1109,18 @@
                 .split(",")
                 .map((service) => service.trim())
                 .filter(Boolean);
-            const serviceHtml = services.length
-                ? `<div class="ip-list">${services.map((service) => searchLink(service.toLowerCase())).join("")}</div>`
+            const protocolResults = (summary.resolver_protocol_results || []).length
+                ? summary.resolver_protocol_results
+                : services.map((service) => {
+                    const [protocol, port] = service.split(":");
+                    return { protocol, port, supported: true };
+                });
+            const serviceHtml = protocolResults.length
+                ? `<div class="ip-list">${protocolResults.map((result) => {
+                    const service = `${result.protocol}${result.port ? `:${result.port}` : ""}`.toLowerCase();
+                    const state = result.supported ? "Supported" : "Not supported";
+                    return `<span class="ip-chip protocol-result-chip ${result.supported ? "is-supported" : "is-unsupported"}">${service} · ${state}</span>`;
+                }).join("")}</div>`
                 : null;
             const spoofingTotal = Number(summary.spoofing_prefix_count || 0);
             const spoofingAllow = Number(summary.spoofing_allow_count || 0);
@@ -1213,11 +1223,11 @@
                                     thickness: 20,
                                     color: [
                                         ...entries.map(() => "#d9f2ef"),
-                                        "#5BC2C2",
+                                        "#7386bd",
                                     ],
                                     line: {
                                         color: [
-                                            ...entries.map(() => "#5BC2C2"),
+                                            ...entries.map(() => "#7386bd"),
                                             "#4aa9a9",
                                         ],
                                         width: 1,
@@ -1227,7 +1237,7 @@
                                     source: sources,
                                     target: targets,
                                     value: values,
-                                    color: values.map(() => "rgba(91, 194, 194, 0.35)"),
+                                    color: values.map(() => "rgba(115, 134, 189, 0.35)"),
                                 },
                             },
                         ];
@@ -1292,8 +1302,8 @@
                 const radius = Math.min(18, 4 + Math.log10(siteCount + 1) * 6);
                 L.circleMarker([country.latitude, country.longitude], {
                     radius,
-                    fillColor: "#5BC2C2",
-                    color: "#5BC2C2",
+                    fillColor: "#7386bd",
+                    color: "#7386bd",
                     weight: 1,
                     fillOpacity: 0.7,
                 })

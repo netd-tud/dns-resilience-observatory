@@ -41,3 +41,23 @@ url = https://github.com/zmap/zdns
 documentation_endpoint = https://github.com/zmap/zdns
 description = Active measurement for SVCB records.
 apikey_required = false
+
+[source.measurements.zdns.dnssec]
+url = https://github.com/zmap/zdns
+documentation_endpoint = https://github.com/zmap/zdns
+description = Active resolver DNSSEC validation measurement using dnssec-failed.org.
+apikey_required = false
+
+[source.manrs-observatory]
+url = https://observatory.manrs.org/
+api_endpoint = https://observatory.manrs.org/api/v2/scores/summary
+documentation_endpoint = https://observatory.manrs.org/api/v2/docs
+description = MANRS readiness scores for resolver ASNs and countries.
+apikey_required = true
+
+[source.ripe-stat-rpki]
+url = https://stat.ripe.net/
+api_endpoint = https://stat.ripe.net/data/rpki-validation/data.json
+documentation_endpoint = https://stat.ripe.net/docs/data-api/api-endpoints/rpki-validation
+description = RIPEstat RPKI validation state for resolver prefix and origin ASN pairs.
+apikey_required = false

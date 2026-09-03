@@ -1,0 +1,622 @@
+{% extends "frontend/base.html" %}
+
+{% block title %}Compare | DNS Resilience Observatory{% endblock %}
+
+{% block banner %}
+    <section class="banner compare-banner">
+        <div class="banner-inner">
+            <div>
+                <p class="compare-banner-kicker">Side-by-side analysis</p>
+                <h1>Compare</h1>
+                <p>Compare measurable practices and routing-security scores across economies, autonomous systems, or recursive DNS resolver IP addresses.</p>
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block content %}
+    <main class="content compare-content">
+        <section class="compare-builder" aria-labelledby="compare-builder-title">
+            <div class="compare-builder-heading">
+                <div>
+                    <p class="compare-section-kicker">Build a comparison</p>
+                    <h2 id="compare-builder-title">Choose One Entity Type</h2>
+                </div>
+                <p>Enter between two and five targets. Metrics are normalized to the recursive DNS resolvers associated with each target.</p>
+            </div>
+
+            <form id="compare-form">
+                <fieldset class="compare-type-picker">
+                    <legend>Entity type</legend>
+                    <label>
+                        <input type="radio" name="compare-type" value="country" checked />
+                        <span>Countries</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="compare-type" value="asn" />
+                        <span>ASes</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="compare-type" value="resolver" />
+                        <span>Resolver IP Addresses</span>
+                    </label>
+                </fieldset>
+
+                <div class="compare-target-control">
+                    <label for="compare-targets">Targets</label>
+                    <div class="compare-target-row">
+                        <textarea id="compare-targets" rows="2" spellcheck="false" placeholder="DE, NL, SG" aria-describedby="compare-target-help"></textarea>
+                        <button class="compare-run-button" type="submit">Compare Targets</button>
+                    </div>
+                    <p id="compare-target-help">Separate targets with commas or new lines.</p>
+                    <div class="compare-examples" data-compare-examples aria-label="Example targets"></div>
+                </div>
+            </form>
+
+            <div class="compare-status" id="compare-status" role="status" aria-live="polite">
+                <span class="compare-status-dot" aria-hidden="true"></span>
+                <span data-compare-status-text>Ready to compare.</span>
+            </div>
+        </section>
+
+        <section class="compare-results" id="compare-results" aria-live="polite">
+            <div class="compare-empty">
+                <strong>No comparison selected</strong>
+                <span>Choose an entity type and enter at least two targets above.</span>
+            </div>
+        </section>
+    </main>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        const apiBaseUrl = "{{ api_base_url }}".replace(/\/+$/, "");
+        const compareForm = document.getElementById("compare-form");
+        const compareTargets = document.getElementById("compare-targets");
+        const compareResults = document.getElementById("compare-results");
+        const compareExamples = document.querySelector("[data-compare-examples]");
+        const compareStatusText = document.querySelector("[data-compare-status-text]");
+        const compareStatusDot = document.querySelector(".compare-status-dot");
+        const countFormatter = new Intl.NumberFormat();
+        const percentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
+        const typeConfiguration = {
+            country: {
+                label: "Countries",
+                singular: "country",
+                placeholder: "DE, NL, SG",
+                examples: ["DE", "NL", "SG"],
+            },
+            asn: {
+                label: "ASes",
+                singular: "autonomous system",
+                placeholder: "AS13335, AS15169, AS19281",
+                examples: ["AS13335", "AS15169", "AS19281"],
+            },
+            resolver: {
+                label: "Resolver IP Addresses",
+                singular: "resolver IP address",
+                placeholder: "1.1.1.1, 8.8.8.8, 9.9.9.9",
+                examples: ["1.1.1.1", "8.8.8.8", "9.9.9.9"],
+            },
+        };
+
+        const comparisonColors = {
+            positive: "#7386bd",
+            negative: "#e9a6aa",
+            alarming: "#e45757",
+            neutral: "#657086",
+            unstable: "#929bab",
+            unknown: "#cbd1dc",
+        };
+
+        const deploymentMetrics = [
+            {
+                key: "open_resolvers",
+                label: "Resolver Accessibility",
+                description: "Whether resolver IP records are open or closed.",
+                highlightKey: "open",
+                categories: [
+                    { key: "open", label: "Open", color: comparisonColors.positive },
+                    { key: "closed", label: "Closed", color: comparisonColors.neutral },
+                ],
+            },
+            {
+                key: "dnssec_validation",
+                label: "DNSSEC Validation",
+                description: "SERVFAIL for dnssec-failed.org indicates validation; a reply indicates no validation.",
+                highlightKey: "validating",
+                categories: [
+                    { key: "validating", label: "Validating", color: comparisonColors.positive },
+                    { key: "not_validating", label: "Not validating", color: comparisonColors.negative },
+                    { key: "unknown", label: "Unknown", color: comparisonColors.unknown },
+                ],
+            },
+            {
+                key: "qmin",
+                label: "QMIN Implementation",
+                description: "Includes correct, excessive-query, disabled, unstable, and unknown outcomes.",
+                highlightKey: "proper",
+                categories: [
+                    { key: "proper", label: "Properly enabled", color: comparisonColors.positive },
+                    { key: "too_many_queries", label: "Too many queries possible", color: comparisonColors.alarming },
+                    { key: "not_implemented", label: "Not implemented", color: comparisonColors.negative },
+                    { key: "unstable", label: "Unstable", color: comparisonColors.unstable },
+                    { key: "unknown", label: "Unknown", color: comparisonColors.unknown },
+                ],
+            },
+            {
+                key: "anycast",
+                label: "Anycast Enabled",
+                description: "Whether resolver IP records are covered by an observed anycast prefix.",
+                highlightKey: "enabled",
+                categories: [
+                    { key: "enabled", label: "Enabled", color: comparisonColors.positive },
+                    { key: "not_enabled", label: "Not enabled", color: comparisonColors.negative },
+                ],
+            },
+            {
+                key: "dual_stack",
+                label: "Dual Stack Connectivity",
+                description: "Whether the resolver identity has both IPv4 and IPv6 addresses.",
+                highlightKey: "dual_stack",
+                categories: [
+                    { key: "dual_stack", label: "Dual stack", color: comparisonColors.positive },
+                    { key: "not_dual_stack", label: "Not dual stack", color: comparisonColors.negative },
+                ],
+            },
+            {
+                key: "secure_protocols",
+                label: "Secure Protocols",
+                description: "Support for DoH, DoQ, or DoT, distinguished from failed and missing tests.",
+                highlightKey: "supported",
+                categories: [
+                    { key: "supported", label: "Supported", color: comparisonColors.positive },
+                    { key: "not_supported", label: "Tested, not supported", color: comparisonColors.negative },
+                    { key: "unknown", label: "Not tested / unknown", color: comparisonColors.unknown },
+                ],
+            },
+        ];
+
+        const routingMetrics = [
+            {
+                key: "bcp38",
+                label: "BCP38 Compliance",
+                description: "Combines CAIDA Spoofer observations with transparent-forwarder evidence.",
+                highlightKey: "blocks_spoofing",
+                categories: [
+                    { key: "allows_spoofing", label: "Allows spoofing", color: comparisonColors.alarming },
+                    { key: "blocks_spoofing", label: "Blocks spoofing", color: comparisonColors.positive },
+                    { key: "unknown", label: "Unknown", color: comparisonColors.unknown },
+                ],
+            },
+            {
+                key: "rpki",
+                label: "RPKI Validation",
+                description: "Validation state of matching resolver prefix-origin pairs in RIPEstat.",
+                highlightKey: "valid",
+                categories: [
+                    { key: "valid", label: "Valid", color: comparisonColors.positive },
+                    { key: "invalid", label: "Invalid", color: comparisonColors.alarming },
+                    { key: "unknown", label: "Unknown", color: comparisonColors.unknown },
+                ],
+            },
+        ];
+
+        const manrsMetrics = [
+            { key: "average_readiness_pc", label: "Average MANRS Readiness", description: "Average across available MANRS readiness components." },
+            { key: "anti_spoofing_pc", label: "MANRS Anti-Spoofing", description: "MANRS anti-spoofing readiness score." },
+            { key: "coordination_pc", label: "MANRS Coordination", description: "MANRS global validation and coordination score." },
+            { key: "filtering_pc", label: "MANRS Filtering", description: "MANRS routing incident prevention score." },
+            { key: "routing_information_irr_pc", label: "MANRS IRR Information", description: "MANRS routing-information score based on IRR data." },
+            { key: "routing_information_rpki_pc", label: "MANRS RPKI Information", description: "MANRS routing-information score based on RPKI data." },
+        ];
+
+        function selectedType() {
+            return compareForm.elements["compare-type"].value;
+        }
+
+        function setCompareStatus(message, tone = "idle") {
+            compareStatusText.textContent = message;
+            compareStatusDot.dataset.tone = tone;
+        }
+
+        function formatPercent(value) {
+            const numericValue = Number(value || 0);
+            if (numericValue > 0 && numericValue < 0.1) {
+                return "<0.1%";
+            }
+            return `${percentFormatter.format(numericValue)}%`;
+        }
+
+        function parseTargets(value) {
+            const seen = new Set();
+            return value
+                .split(/[,;\n]+/)
+                .map((target) => target.trim())
+                .filter((target) => {
+                    const key = target.toLowerCase();
+                    if (!target || seen.has(key)) {
+                        return false;
+                    }
+                    seen.add(key);
+                    return true;
+                });
+        }
+
+        function updateExamples() {
+            const configuration = typeConfiguration[selectedType()];
+            compareTargets.placeholder = configuration.placeholder;
+            compareExamples.replaceChildren();
+            const prefix = document.createElement("span");
+            prefix.textContent = "Examples:";
+            compareExamples.append(prefix);
+            configuration.examples.forEach((example) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = example;
+                button.addEventListener("click", () => {
+                    const currentTargets = parseTargets(compareTargets.value);
+                    if (!currentTargets.some((target) => target.toLowerCase() === example.toLowerCase())) {
+                        currentTargets.push(example);
+                    }
+                    compareTargets.value = currentTargets.join(", ");
+                    compareTargets.focus();
+                });
+                compareExamples.append(button);
+            });
+        }
+
+        async function fetchComparison(entityType, target) {
+            const response = await fetch(
+                `${apiBaseUrl}/api/dns-resilience/compare/${entityType}/${encodeURIComponent(target)}`,
+                { cache: "no-store" },
+            );
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.detail || payload.error || "Comparison request failed.");
+            }
+            return payload;
+        }
+
+        function createElement(tag, className, text) {
+            const element = document.createElement(tag);
+            if (className) {
+                element.className = className;
+            }
+            if (text !== undefined) {
+                element.textContent = text;
+            }
+            return element;
+        }
+
+        function comparisonValue(payload, definition, source) {
+            if (!payload.resolver_count) {
+                return { available: false };
+            }
+            if (source === "manrs") {
+                const value = payload.manrs?.[definition.key];
+                return {
+                    available: payload.manrs?.available === true && value !== null && value !== undefined,
+                    value: Number(value || 0),
+                    detail: definition.key === "average_readiness_pc"
+                        ? `Average of ${Number(payload.manrs?.metric_count || 0)}/5 available metrics`
+                        : "MANRS score",
+                };
+            }
+            if (source === "apnic") {
+                const validating = payload.country_dnssec?.dnssec_validating_pc;
+                const unknown = payload.country_dnssec?.dnssec_partial_validating_pc;
+                if (validating === null || validating === undefined) {
+                    return { available: false };
+                }
+                const validatingValue = Math.max(0, Math.min(100, Number(validating || 0)));
+                const unknownValue = Math.max(0, Math.min(100 - validatingValue, Number(unknown || 0)));
+                const categoryPercentages = {
+                    validating: validatingValue,
+                    not_validating: Math.max(0, 100 - validatingValue - unknownValue),
+                    unknown: unknownValue,
+                };
+                return {
+                    available: true,
+                    value: validatingValue,
+                    categories: definition.categories.map((category) => ({
+                        ...category,
+                        percent: categoryPercentages[category.key],
+                        count: null,
+                    })),
+                };
+            }
+            const metric = payload.metrics?.[definition.key];
+            if (!metric || !definition.categories) {
+                return { available: false };
+            }
+            const categories = definition.categories.map((category) => {
+                const categoryValue = metric.categories?.[category.key] || {};
+                return {
+                    ...category,
+                    count: Number(categoryValue.count || 0),
+                    percent: Number(categoryValue.percent || 0),
+                };
+            });
+            const highlightedCategory = categories.find((category) => category.key === definition.highlightKey);
+            return {
+                available: true,
+                value: Number(highlightedCategory?.percent || 0),
+                categories,
+            };
+        }
+
+        function renderDistributionCell(cell, value) {
+            const track = createElement("span", "compare-value-track compare-value-track-segmented");
+            const categoryList = createElement("div", "compare-category-list");
+            const descriptions = [];
+            value.categories.forEach((category) => {
+                const fill = createElement("span", "compare-value-fill compare-value-segment");
+                fill.style.width = `${Math.max(0, Math.min(100, category.percent))}%`;
+                fill.style.background = category.color;
+                fill.title = `${category.label}: ${formatPercent(category.percent)}`;
+                track.append(fill);
+
+                const categoryRow = createElement("div", "compare-category-row");
+                const swatch = createElement("span", "compare-category-swatch");
+                swatch.style.background = category.color;
+                const label = createElement("span", "compare-category-label", category.label);
+                const percentage = createElement("strong", "compare-category-percent", formatPercent(category.percent));
+                categoryRow.append(swatch, label, percentage);
+                if (category.count !== null && category.count !== undefined) {
+                    const count = createElement("span", "compare-category-count", countFormatter.format(category.count));
+                    count.title = `${countFormatter.format(category.count)} recursive DNS resolver IP records`;
+                    categoryRow.append(count);
+                    descriptions.push(`${category.label}: ${formatPercent(category.percent)}, ${countFormatter.format(category.count)} resolvers`);
+                } else {
+                    descriptions.push(`${category.label}: ${formatPercent(category.percent)}`);
+                }
+                categoryList.append(categoryRow);
+            });
+            cell.setAttribute("aria-label", descriptions.join("; "));
+            cell.append(track, categoryList);
+        }
+
+        function renderSummaryCards(payloads) {
+            const grid = createElement("div", "compare-summary-grid");
+            const typeLabels = {
+                country: "Country",
+                asn: "Autonomous System",
+                resolver: "Resolver IP Address",
+            };
+            payloads.forEach((payload) => {
+                const card = createElement("article", "compare-summary-card");
+                card.append(
+                    createElement("span", "compare-summary-type", typeLabels[payload.entity_type]),
+                    createElement("h2", "", payload.display_target),
+                );
+                const resolverCount = createElement("strong", "compare-summary-count", countFormatter.format(payload.resolver_count));
+                const countLabel = createElement("span", "", payload.resolver_count === 1 ? "Resolver IP Record" : "Resolver IP Records");
+                const countBlock = createElement("div", "compare-summary-stat");
+                countBlock.append(resolverCount, countLabel);
+                card.append(countBlock);
+                if (!payload.resolver_count) {
+                    card.append(createElement("p", "compare-summary-warning", "No matching resolver was found in the database."));
+                }
+                grid.append(card);
+            });
+            return grid;
+        }
+
+        function addMetricGroup(tableBody, title, definitions, payloads, source = "resolver") {
+            const groupRow = document.createElement("tr");
+            groupRow.className = "compare-group-row";
+            const groupHeading = document.createElement("th");
+            groupHeading.colSpan = payloads.length + 1;
+            groupHeading.scope = "colgroup";
+            groupHeading.textContent = title;
+            groupRow.append(groupHeading);
+            tableBody.append(groupRow);
+
+            definitions.forEach((definition) => {
+                const values = payloads.map((payload) => comparisonValue(payload, definition, source));
+                const availableValues = values.filter((value) => value.available).map((value) => value.value);
+                const maximum = availableValues.length ? Math.max(...availableValues) : null;
+                const row = document.createElement("tr");
+                const heading = document.createElement("th");
+                heading.scope = "row";
+                heading.append(
+                    createElement("strong", "", definition.label),
+                    createElement("small", "", definition.description),
+                );
+                row.append(heading);
+
+                values.forEach((value) => {
+                    const cell = document.createElement("td");
+                    if (!value.available) {
+                        cell.className = "compare-value-unavailable";
+                        cell.append(createElement("strong", "", "—"), createElement("small", "", "No measurement"));
+                        row.append(cell);
+                        return;
+                    }
+                    if (maximum !== null && maximum > 0 && value.value === maximum && payloads.length > 1) {
+                        cell.classList.add("compare-value-best");
+                    }
+                    if (value.categories) {
+                        renderDistributionCell(cell, value);
+                        row.append(cell);
+                        return;
+                    }
+                    const valueLabel = createElement("strong", "compare-value-number", formatPercent(value.value));
+                    const bar = createElement("span", "compare-value-track");
+                    const fill = createElement("span", "compare-value-fill");
+                    fill.style.width = `${Math.max(0, Math.min(100, value.value))}%`;
+                    bar.append(fill);
+                    cell.append(valueLabel, bar, createElement("small", "", value.detail));
+                    row.append(cell);
+                });
+                tableBody.append(row);
+            });
+        }
+
+        function renderComparison(payloads, entityType) {
+            compareResults.replaceChildren();
+            compareResults.append(renderSummaryCards(payloads));
+
+            const tableSection = createElement("section", "compare-table-card");
+            const heading = createElement("div", "compare-table-heading");
+            heading.append(
+                createElement("p", "compare-section-kicker", "Normalized comparison"),
+                createElement("h2", "", "Scores and Metrics"),
+                createElement("p", "", "The highest available value in each row is highlighted. Missing measurements remain unknown rather than being treated as zero."),
+            );
+            tableSection.append(heading);
+
+            const tableWrap = createElement("div", "compare-table-wrap");
+            const table = document.createElement("table");
+            table.className = "compare-matrix";
+            const tableHead = document.createElement("thead");
+            const headRow = document.createElement("tr");
+            const metricHeading = document.createElement("th");
+            metricHeading.scope = "col";
+            metricHeading.textContent = "Metric";
+            headRow.append(metricHeading);
+            payloads.forEach((payload) => {
+                const targetHeading = document.createElement("th");
+                targetHeading.scope = "col";
+                targetHeading.textContent = payload.display_target;
+                headRow.append(targetHeading);
+            });
+            tableHead.append(headRow);
+            table.append(tableHead);
+
+            const tableBody = document.createElement("tbody");
+            addMetricGroup(tableBody, "Resolver Deployment", deploymentMetrics, payloads);
+            addMetricGroup(tableBody, "Routing Security", routingMetrics, payloads);
+            addMetricGroup(tableBody, "MANRS Readiness Scores", manrsMetrics, payloads, "manrs");
+            if (entityType === "country") {
+                addMetricGroup(tableBody, "External Economy Measurement", [{
+                    key: "apnic_dnssec",
+                    label: "APNIC DNSSEC Validation",
+                    description: "Economy-level validating, not-validating, and partial/unknown shares reported by APNIC Labs.",
+                    highlightKey: "validating",
+                    categories: [
+                        { key: "validating", label: "Validating", color: comparisonColors.positive },
+                        { key: "not_validating", label: "Not validating", color: comparisonColors.negative },
+                        { key: "unknown", label: "Partial / unknown", color: comparisonColors.unknown },
+                    ],
+                }], payloads, "apnic");
+            }
+            table.append(tableBody);
+            tableWrap.append(table);
+            tableSection.append(tableWrap);
+            compareResults.append(tableSection);
+        }
+
+        function renderLoading(targets) {
+            compareResults.replaceChildren();
+            const loadingGrid = createElement("div", "compare-summary-grid");
+            targets.forEach((target) => {
+                const card = createElement("article", "compare-summary-card compare-summary-loading");
+                card.append(
+                    createElement("span", "compare-loading-line compare-loading-line-short"),
+                    createElement("span", "compare-loading-line"),
+                    createElement("span", "compare-loading-circle"),
+                    createElement("span", "visually-hidden", `Loading ${target}`),
+                );
+                loadingGrid.append(card);
+            });
+            compareResults.append(loadingGrid);
+        }
+
+        function renderFailures(failures) {
+            if (!failures.length) {
+                return;
+            }
+            const warning = createElement("div", "compare-failure-list");
+            const heading = createElement("strong", "", "Some targets could not be loaded");
+            const list = document.createElement("ul");
+            failures.forEach(({ target, reason }) => {
+                list.append(createElement("li", "", `${target}: ${reason.message}`));
+            });
+            warning.append(heading, list);
+            compareResults.prepend(warning);
+        }
+
+        async function runComparison(event) {
+            event?.preventDefault();
+            const entityType = selectedType();
+            const targets = parseTargets(compareTargets.value);
+            if (targets.length < 2) {
+                setCompareStatus("Enter at least two distinct targets.", "error");
+                compareTargets.focus();
+                return;
+            }
+            if (targets.length > 5) {
+                setCompareStatus("Compare no more than five targets at once.", "error");
+                compareTargets.focus();
+                return;
+            }
+
+            renderLoading(targets);
+            setCompareStatus(`Loading ${targets.length} ${typeConfiguration[entityType].label.toLowerCase()}…`, "loading");
+            const url = new URL(window.location.href);
+            url.searchParams.set("type", entityType);
+            url.searchParams.set("targets", targets.join(","));
+            window.history.replaceState({}, "", url);
+
+            const results = await Promise.allSettled(targets.map((target) => fetchComparison(entityType, target)));
+            const payloads = [];
+            const failures = [];
+            results.forEach((result, index) => {
+                if (result.status === "fulfilled") {
+                    payloads.push(result.value);
+                } else {
+                    failures.push({ target: targets[index], reason: result.reason });
+                }
+            });
+
+            if (!payloads.length) {
+                compareResults.replaceChildren();
+                const empty = createElement("div", "compare-empty");
+                empty.append(
+                    createElement("strong", "", "Comparison unavailable"),
+                    createElement("span", "", "None of the entered targets could be loaded."),
+                );
+                compareResults.append(empty);
+                renderFailures(failures);
+                setCompareStatus("The comparison could not be loaded.", "error");
+                return;
+            }
+
+            renderComparison(payloads, entityType);
+            renderFailures(failures);
+            setCompareStatus(
+                failures.length
+                    ? `Compared ${payloads.length} targets; ${failures.length} could not be loaded.`
+                    : `Compared ${payloads.length} targets.`,
+                failures.length ? "warning" : "ok",
+            );
+        }
+
+        compareForm.addEventListener("submit", runComparison);
+        compareForm.querySelectorAll('input[name="compare-type"]').forEach((input) => {
+            input.addEventListener("change", () => {
+                compareTargets.value = "";
+                updateExamples();
+                setCompareStatus(`Ready to compare ${typeConfiguration[selectedType()].label.toLowerCase()}.`);
+            });
+        });
+
+        const initialParameters = new URLSearchParams(window.location.search);
+        const initialType = initialParameters.get("type");
+        const initialTargets = initialParameters.get("targets");
+        if (typeConfiguration[initialType]) {
+            const input = compareForm.querySelector(`input[name="compare-type"][value="${initialType}"]`);
+            input.checked = true;
+        }
+        updateExamples();
+        if (initialTargets) {
+            compareTargets.value = initialTargets;
+            if (parseTargets(initialTargets).length >= 2) {
+                runComparison();
+            }
+        }
+    </script>
+{% endblock %}

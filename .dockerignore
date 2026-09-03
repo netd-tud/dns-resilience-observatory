@@ -5,3 +5,4 @@ db/postgresdb_vol/
 __pycache__/
 .git/
 .venv/
+data_gathering/tasks/manrs/manrs.conf

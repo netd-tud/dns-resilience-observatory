@@ -71,6 +71,7 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./data:/data
+      - ./data_gathering/tasks/manrs/manrs.conf:/app/data_gathering/tasks/manrs/manrs.conf:ro
     environment:
       RUN_STARTUP_TASKS: "true"
       DATABASE_ENGINE: postgresql
@@ -109,6 +110,7 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./data:/data
+      - ./data_gathering/tasks/manrs/manrs.conf:/app/data_gathering/tasks/manrs/manrs.conf:ro
     environment:
       RUN_STARTUP_TASKS: "false"
       DATABASE_ENGINE: postgresql

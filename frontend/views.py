@@ -56,3 +56,7 @@ def resolver_dashboard(request):
 
 def search(request):
     return render(request, "frontend/search.html", {"api_base_url": settings.API_BASE_URL})
+
+
+def compare(request):
+    return render(request, "frontend/compare.html", {"api_base_url": settings.API_BASE_URL})

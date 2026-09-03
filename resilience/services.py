@@ -1,3 +1,4 @@
+import json
 import re
 import urllib.parse
 from functools import wraps
@@ -66,7 +67,11 @@ class DNSResilienceService:
                 STRING_AGG(
                     DISTINCT (rs.protocol || ':' || rs.port::TEXT),
                     ',' ORDER BY (rs.protocol || ':' || rs.port::TEXT)
-                ) FILTER (WHERE rs.protocol IS NOT NULL AND rs.port IS NOT NULL) AS supported_protocols
+                ) FILTER (
+                    WHERE rs.protocol IS NOT NULL
+                      AND rs.port IS NOT NULL
+                      AND rs.supported IS TRUE
+                ) AS supported_protocols
             FROM resolver r
             LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
             LEFT JOIN resolver_prefix rp ON rp.resolver_id = r.resolver_id
@@ -139,6 +144,14 @@ class DNSResilienceService:
             raise ValidationError(f"Invalid domain '{domain}': contains invalid DNS label characters")
         return normalized
 
+    def validate_organization(self, organization: str) -> str:
+        if not organization or not isinstance(organization, str):
+            raise ValidationError("Organization must be a non-empty string")
+        normalized = organization.strip()
+        if len(normalized) > 200:
+            raise ValidationError("Organization lookup must not exceed 200 characters")
+        return normalized
+
     def validate_resolver_service(self, service: str) -> tuple[str, int | None]:
         if not service or not isinstance(service, str):
             raise ValidationError("Protocol must be a non-empty string")
@@ -155,6 +168,430 @@ class DNSResilienceService:
         if not re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", protocol):
             raise ValidationError(f"Invalid protocol '{service}'")
         return protocol, port
+
+    def validate_port(self, port: int | str) -> int:
+        try:
+            normalized = int(port)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"Invalid port '{port}': must be numeric") from exc
+        if not (1 <= normalized <= 65535):
+            raise ValidationError(f"Invalid port '{port}': must be between 1 and 65535")
+        return normalized
+
+    @staticmethod
+    def _manrs_readiness_payload(row: dict | None) -> dict:
+        metric_columns = {
+            "anti_spoofing_pc": "anti_spoofing_score",
+            "coordination_pc": "coordination_score",
+            "filtering_pc": "filtering_score",
+            "routing_information_irr_pc": "routing_information_irr_score",
+            "routing_information_rpki_pc": "routing_information_rpki_score",
+        }
+        if not row:
+            return {
+                "available": False,
+                "average_readiness_pc": None,
+                "metric_count": 0,
+                "last_update_ts": None,
+                **{output: None for output in metric_columns},
+            }
+
+        available_scores = [
+            float(row[column])
+            for column in metric_columns.values()
+            if row.get(column) is not None
+        ]
+        average_readiness_pc = (
+            round((sum(available_scores) / len(available_scores)) * 100.0, 2)
+            if available_scores
+            else None
+        )
+        return {
+            "available": bool(available_scores),
+            "average_readiness_pc": average_readiness_pc,
+            "metric_count": len(available_scores),
+            "last_update_ts": row.get("last_update_ts"),
+            **{
+                output: round(float(row[column]) * 100.0, 2)
+                if row.get(column) is not None
+                else None
+                for output, column in metric_columns.items()
+            },
+        }
+
+    def _get_manrs_asn_row(self, asn: int) -> dict | None:
+        return self._fetchone(
+            """
+            SELECT
+                anti_spoofing_score,
+                coordination_score,
+                filtering_score,
+                routing_information_irr_score,
+                routing_information_rpki_score,
+                last_update_ts
+            FROM manrs_asn
+            WHERE asn = %s
+            """,
+            [asn],
+        )
+
+    def _get_manrs_country_row(self, country: str) -> dict | None:
+        return self._fetchone(
+            """
+            SELECT
+                anti_spoofing_score,
+                coordination_score,
+                filtering_score,
+                routing_information_irr_score,
+                routing_information_rpki_score,
+                last_update_ts
+            FROM manrs_country
+            WHERE country = %s
+            """,
+            [country],
+        )
+
+    @cached()
+    def get_asn_manrs(self, asn: str) -> dict:
+        normalized = self.validate_asn(asn)
+        return {
+            "entity_type": "asn",
+            "target": f"AS{normalized}",
+            "asn": normalized,
+            **self._manrs_readiness_payload(self._get_manrs_asn_row(normalized)),
+        }
+
+    @cached()
+    def get_country_manrs(self, country: str) -> dict:
+        normalized = self.validate_country_code(country)
+        return {
+            "entity_type": "country",
+            "target": normalized,
+            "country": normalized,
+            **self._manrs_readiness_payload(self._get_manrs_country_row(normalized)),
+        }
+
+    @cached()
+    def get_resolver_manrs(self, ip: str) -> dict:
+        normalized = self.validate_ip_address(ip)
+        resolver_asn = self._fetchone(
+            """
+            SELECT ra.asn::BIGINT AS asn
+            FROM resolver r
+            LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
+            WHERE r.ip = %s::INET
+            LIMIT 1
+            """,
+            [normalized],
+        ) or {}
+        asn = resolver_asn.get("asn")
+        readiness = self._manrs_readiness_payload(
+            self._get_manrs_asn_row(int(asn)) if asn is not None else None
+        )
+        return {
+            "entity_type": "resolver_asn",
+            "target": normalized,
+            "resolver_ip": normalized,
+            "asn": asn,
+            "source_entity": f"AS{asn}" if asn is not None else None,
+            **readiness,
+        }
+
+    @cached(ttl=300)
+    def get_comparison_metrics(self, entity_type: str, target: str) -> dict:
+        normalized_type = (entity_type or "").strip().lower()
+        if normalized_type in {"as", "asn"}:
+            normalized_type = "asn"
+            normalized_target = self.validate_asn(target)
+            display_target = f"AS{normalized_target}"
+            scope_sql = """
+                SELECT DISTINCT r.resolver_id, r.ip, r.is_public, r.last_update_ts
+                FROM resolver r
+                JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
+                WHERE ra.asn = %s
+            """
+            scope_params = [normalized_target]
+            manrs = self.get_asn_manrs(str(normalized_target))
+            country_dnssec = None
+        elif normalized_type == "country":
+            normalized_target = self.validate_country_code(target)
+            country = pycountry.countries.get(alpha_3=normalized_target)
+            display_target = f"{country.name} ({normalized_target})" if country else normalized_target
+            scope_sql = """
+                SELECT DISTINCT r.resolver_id, r.ip, r.is_public, r.last_update_ts
+                FROM resolver r
+                JOIN resolver_location rl ON rl.resolver_id = r.resolver_id
+                WHERE rl.country = %s
+            """
+            scope_params = [normalized_target]
+            manrs = self.get_country_manrs(normalized_target)
+            country_dnssec = self.get_country_dnssec(normalized_target)
+        elif normalized_type in {"resolver", "ip", "resolver-ip"}:
+            normalized_type = "resolver"
+            normalized_target = self.validate_ip_address(target)
+            display_target = normalized_target
+            scope_sql = """
+                SELECT DISTINCT r.resolver_id, r.ip, r.is_public, r.last_update_ts
+                FROM resolver r
+                WHERE r.ip = %s::INET
+            """
+            scope_params = [normalized_target]
+            manrs = self.get_resolver_manrs(normalized_target)
+            country_dnssec = None
+        else:
+            raise ValidationError("Comparison entity type must be 'country', 'asn', or 'resolver'")
+
+        row = self._fetchone(
+            f"""
+            WITH scoped_resolvers AS MATERIALIZED (
+                {scope_sql}
+            ),
+            scoped_asns AS MATERIALIZED (
+                SELECT DISTINCT ra.asn
+                FROM scoped_resolvers sr
+                JOIN resolver_asn ra ON ra.resolver_id = sr.resolver_id
+                WHERE ra.asn > 0
+            ),
+            caida_allowing_asns AS MATERIALIZED (
+                SELECT DISTINCT sa.asn
+                FROM spoofing_asn sa
+                JOIN scoped_asns scoped ON scoped.asn = sa.asn
+                JOIN spoofing s ON s.prefix = sa.prefix
+                WHERE s.source = 'caida-spoofer'
+                  AND {self._SPOOFING_ALLOW_SQL}
+            ),
+            transparent_forwarder_asns AS MATERIALIZED (
+                SELECT DISTINCT fa.asn::BIGINT AS asn
+                FROM forwarder f
+                JOIN forwarder_asn fa ON fa.forwarder_id = f.forwarder_id
+                JOIN scoped_asns scoped ON scoped.asn = fa.asn
+                WHERE (
+                        LOWER(TRIM(f.type)) = 'transparent'
+                        OR f.transparent_count > 0
+                    )
+                  AND f.source = 'odns-api'
+            ),
+            allowing_asns AS MATERIALIZED (
+                SELECT asn FROM caida_allowing_asns
+                UNION
+                SELECT asn FROM transparent_forwarder_asns
+            ),
+            caida_blocking_asns AS MATERIALIZED (
+                SELECT DISTINCT sa.asn
+                FROM spoofing_asn sa
+                JOIN scoped_asns scoped ON scoped.asn = sa.asn
+                JOIN spoofing s ON s.prefix = sa.prefix
+                WHERE s.source = 'caida-spoofer'
+                  AND NOT {self._SPOOFING_ALLOW_SQL}
+                  AND (
+                      LOWER(COALESCE(s.privatespoof, '')) = 'blocked'
+                      OR LOWER(COALESCE(s.routedspoof, '')) = 'blocked'
+                  )
+            ),
+            resolver_features AS MATERIALIZED (
+                SELECT
+                    sr.resolver_id,
+                    sr.ip,
+                    sr.is_public,
+                    sr.last_update_ts,
+                    EXISTS (
+                        SELECT 1 FROM dnssec_resolver dr
+                        WHERE dr.ip = sr.ip AND dr.validates IS TRUE
+                    ) AS validates_dnssec,
+                    EXISTS (
+                        SELECT 1 FROM dnssec_resolver dr
+                        WHERE dr.ip = sr.ip AND dr.validates IS FALSE
+                    ) AS does_not_validate_dnssec,
+                    EXISTS (
+                        SELECT 1 FROM qmin_resolver q
+                        WHERE q.resolver_id = sr.resolver_id
+                          AND LOWER(COALESCE(q.qmin, '')) = 'yes'
+                          AND q.max_minimise_count <= 10
+                    ) AS proper_qmin,
+                    EXISTS (
+                        SELECT 1 FROM qmin_resolver q
+                        WHERE q.resolver_id = sr.resolver_id
+                          AND LOWER(TRIM(COALESCE(q.qmin, ''))) = 'yes'
+                          AND q.max_minimise_count > 10
+                    ) AS qmin_too_many_queries,
+                    EXISTS (
+                        SELECT 1 FROM qmin_resolver q
+                        WHERE q.resolver_id = sr.resolver_id
+                          AND LOWER(TRIM(COALESCE(q.qmin, ''))) = 'no'
+                    ) AS qmin_not_implemented,
+                    EXISTS (
+                        SELECT 1 FROM qmin_resolver q
+                        WHERE q.resolver_id = sr.resolver_id
+                          AND LOWER(TRIM(COALESCE(q.qmin, ''))) = 'unstable'
+                    ) AS qmin_unstable,
+                    EXISTS (
+                        SELECT 1 FROM anycast a
+                        WHERE sr.ip <<= a.prefix
+                    ) AS anycast_enabled,
+                    (
+                        EXISTS (
+                            SELECT 1 FROM resolver r4
+                            WHERE r4.resolver_id = sr.resolver_id AND family(r4.ip) = 4
+                        )
+                        AND EXISTS (
+                            SELECT 1 FROM resolver r6
+                            WHERE r6.resolver_id = sr.resolver_id AND family(r6.ip) = 6
+                        )
+                    ) AS dual_stack,
+                    EXISTS (
+                        SELECT 1 FROM resolver_service rs
+                        WHERE rs.resolver_id = sr.resolver_id
+                          AND (
+                              LOWER(TRIM(rs.protocol)) IN ('doq', 'dot')
+                              OR LOWER(TRIM(rs.protocol)) LIKE 'doh%%'
+                          )
+                    ) AS secure_protocol_tested,
+                    EXISTS (
+                        SELECT 1 FROM resolver_service rs
+                        WHERE rs.resolver_id = sr.resolver_id
+                          AND rs.supported IS TRUE
+                          AND (
+                              LOWER(TRIM(rs.protocol)) IN ('doq', 'dot')
+                              OR LOWER(TRIM(rs.protocol)) LIKE 'doh%%'
+                          )
+                    ) AS secure_protocol_supported,
+                    EXISTS (
+                        SELECT 1
+                        FROM resolver_asn ra
+                        JOIN allowing_asns allowing ON allowing.asn = ra.asn
+                        WHERE ra.resolver_id = sr.resolver_id
+                    ) AS allows_spoofing,
+                    EXISTS (
+                        SELECT 1
+                        FROM resolver_asn ra
+                        JOIN caida_blocking_asns blocking ON blocking.asn = ra.asn
+                        WHERE ra.resolver_id = sr.resolver_id
+                    ) AS blocks_spoofing,
+                    EXISTS (
+                        SELECT 1
+                        FROM resolver_prefix rp
+                        JOIN resolver_asn ra ON ra.resolver_id = rp.resolver_id
+                        JOIN rpki_prefix rpk
+                          ON rpk.prefix = rp.prefix
+                         AND rpk.asn = ra.asn
+                        WHERE rp.resolver_id = sr.resolver_id
+                          AND rpk.rpki_status = 'valid'
+                    ) AS rpki_valid,
+                    EXISTS (
+                        SELECT 1
+                        FROM resolver_prefix rp
+                        JOIN resolver_asn ra ON ra.resolver_id = rp.resolver_id
+                        JOIN rpki_prefix rpk
+                          ON rpk.prefix = rp.prefix
+                         AND rpk.asn = ra.asn
+                        WHERE rp.resolver_id = sr.resolver_id
+                          AND rpk.rpki_status IN ('invalid_asn', 'invalid_length')
+                    ) AS rpki_invalid
+                FROM scoped_resolvers sr
+            )
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (WHERE is_public IS TRUE)::INTEGER AS open_resolver_count,
+                COUNT(*) FILTER (WHERE validates_dnssec)::INTEGER AS dnssec_validating_count,
+                COUNT(*) FILTER (WHERE does_not_validate_dnssec)::INTEGER
+                    AS dnssec_not_validating_count,
+                COUNT(*) FILTER (WHERE proper_qmin)::INTEGER AS proper_qmin_count,
+                COUNT(*) FILTER (WHERE qmin_too_many_queries)::INTEGER AS qmin_risk_count,
+                COUNT(*) FILTER (WHERE qmin_not_implemented)::INTEGER
+                    AS qmin_not_implemented_count,
+                COUNT(*) FILTER (WHERE qmin_unstable)::INTEGER AS qmin_unstable_count,
+                COUNT(*) FILTER (WHERE anycast_enabled)::INTEGER AS anycast_count,
+                COUNT(*) FILTER (WHERE dual_stack)::INTEGER AS dual_stack_count,
+                COUNT(*) FILTER (WHERE secure_protocol_tested)::INTEGER AS secure_protocol_tested_count,
+                COUNT(*) FILTER (WHERE secure_protocol_supported)::INTEGER AS secure_protocol_count,
+                COUNT(*) FILTER (
+                    WHERE secure_protocol_tested AND NOT secure_protocol_supported
+                )::INTEGER AS secure_protocol_unsupported_count,
+                COUNT(*) FILTER (WHERE allows_spoofing)::INTEGER AS spoofing_allowing_count,
+                COUNT(*) FILTER (WHERE NOT allows_spoofing AND blocks_spoofing)::INTEGER
+                    AS spoofing_blocking_count,
+                COUNT(*) FILTER (WHERE rpki_valid)::INTEGER AS rpki_valid_count,
+                COUNT(*) FILTER (WHERE NOT rpki_valid AND rpki_invalid)::INTEGER
+                    AS rpki_invalid_count,
+                MAX(last_update_ts) AS last_observation_ts
+            FROM resolver_features
+            """,
+            scope_params,
+        ) or {}
+
+        resolver_count = row.get("resolver_count", 0) or 0
+
+        def distribution_metric(primary_count_key: str, categories: list[tuple[str, str | None]]) -> dict:
+            category_values = {}
+            assigned_count = 0
+            for category_key, count_key in categories:
+                if count_key is None:
+                    category_count = max(resolver_count - assigned_count, 0)
+                else:
+                    category_count = row.get(count_key, 0) or 0
+                    assigned_count += category_count
+                category_values[category_key] = {
+                    "count": category_count,
+                    "percent": self._pc(category_count, resolver_count),
+                }
+            primary_count = row.get(primary_count_key, 0) or 0
+            return {
+                "count": primary_count,
+                "percent": self._pc(primary_count, resolver_count),
+                "observed_count": resolver_count - category_values.get("unknown", {}).get("count", 0),
+                "categories": category_values,
+            }
+
+        return {
+            "entity_type": normalized_type,
+            "target": str(normalized_target),
+            "display_target": display_target,
+            "resolver_count": resolver_count,
+            "last_observation_ts": row.get("last_observation_ts"),
+            "metrics": {
+                "open_resolvers": distribution_metric("open_resolver_count", [
+                    ("open", "open_resolver_count"),
+                    ("closed", None),
+                ]),
+                "dnssec_validation": distribution_metric("dnssec_validating_count", [
+                    ("validating", "dnssec_validating_count"),
+                    ("not_validating", "dnssec_not_validating_count"),
+                    ("unknown", None),
+                ]),
+                "qmin": distribution_metric("proper_qmin_count", [
+                    ("proper", "proper_qmin_count"),
+                    ("too_many_queries", "qmin_risk_count"),
+                    ("not_implemented", "qmin_not_implemented_count"),
+                    ("unstable", "qmin_unstable_count"),
+                    ("unknown", None),
+                ]),
+                "anycast": distribution_metric("anycast_count", [
+                    ("enabled", "anycast_count"),
+                    ("not_enabled", None),
+                ]),
+                "dual_stack": distribution_metric("dual_stack_count", [
+                    ("dual_stack", "dual_stack_count"),
+                    ("not_dual_stack", None),
+                ]),
+                "secure_protocols": distribution_metric("secure_protocol_count", [
+                    ("supported", "secure_protocol_count"),
+                    ("not_supported", "secure_protocol_unsupported_count"),
+                    ("unknown", None),
+                ]),
+                "bcp38": distribution_metric("spoofing_blocking_count", [
+                    ("allows_spoofing", "spoofing_allowing_count"),
+                    ("blocks_spoofing", "spoofing_blocking_count"),
+                    ("unknown", None),
+                ]),
+                "rpki": distribution_metric("rpki_valid_count", [
+                    ("valid", "rpki_valid_count"),
+                    ("invalid", "rpki_invalid_count"),
+                    ("unknown", None),
+                ]),
+            },
+            "manrs": manrs,
+            "country_dnssec": country_dnssec,
+        }
 
     @cached()
     def get_resolvers_by_ip(self, ip: str, limit: int = 100) -> list[dict]:
@@ -181,6 +618,27 @@ class DNSResilienceService:
         return self._fetchall(sql, [normalized, *params])
 
     @cached()
+    def get_resolvers_by_scope(self, scope: str, limit: int = 100) -> tuple[str, list[dict]]:
+        normalized = (scope or "").strip().lower()
+        if normalized == "public":
+            normalized = "open"
+        if normalized not in {"open", "closed"}:
+            raise ValidationError("Resolver scope must be 'open' or 'closed'")
+        sql, params = self._resolver_select("r.is_public = %s", limit=limit)
+        return normalized, self._fetchall(sql, [normalized == "open", *params])
+
+    @cached()
+    def get_resolvers_by_organization(self, organization: str, limit: int = 100) -> tuple[str, list[dict]]:
+        normalized = self.validate_organization(organization)
+        escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        sql, params = self._resolver_select(
+            "ro.org ILIKE %s ESCAPE '\\'",
+            order_sql="ro.org, r.ip",
+            limit=limit,
+        )
+        return normalized, self._fetchall(sql, [f"%{escaped}%", *params])
+
+    @cached()
     def get_resolvers_by_domain(self, domain: str, limit: int = 100) -> list[dict]:
         normalized = self.validate_domain(domain)
         sql, params = self._resolver_select("LOWER(rd.domain) = LOWER(%s)", limit=limit)
@@ -190,10 +648,22 @@ class DNSResilienceService:
     def get_resolvers_by_service(self, service: str, limit: int = 100) -> tuple[str, list[dict]]:
         protocol, port = self.validate_resolver_service(service)
         if port is None:
-            sql, params = self._resolver_select("LOWER(rs.protocol) = %s", limit=limit)
+            sql, params = self._resolver_select(
+                "LOWER(rs.protocol) = %s AND rs.supported IS TRUE",
+                limit=limit,
+            )
             return protocol, self._fetchall(sql, [protocol, *params])
-        sql, params = self._resolver_select("LOWER(rs.protocol) = %s AND rs.port = %s", limit=limit)
+        sql, params = self._resolver_select(
+            "LOWER(rs.protocol) = %s AND rs.port = %s AND rs.supported IS TRUE",
+            limit=limit,
+        )
         return f"{protocol}:{port}", self._fetchall(sql, [protocol, port, *params])
+
+    @cached()
+    def get_resolvers_by_port(self, port: int | str, limit: int = 100) -> tuple[int, list[dict]]:
+        normalized = self.validate_port(port)
+        sql, params = self._resolver_select("rs.port = %s AND rs.supported IS TRUE", limit=limit)
+        return normalized, self._fetchall(sql, [normalized, *params])
 
     @cached()
     def get_resolver_core(self, ip: str) -> dict:
@@ -300,11 +770,30 @@ class DNSResilienceService:
             SELECT protocol, port
             FROM resolver_service
             WHERE resolver_id = %s
+              AND supported IS TRUE
             ORDER BY protocol, port
             """,
             [resolver_id],
         )
         return [f"{row['protocol']}:{row['port']}" for row in rows]
+
+    @cached()
+    def get_resolver_protocol_results(self, resolver_id: int | None) -> list[dict]:
+        if not resolver_id:
+            return []
+        return self._fetchall(
+            """
+            SELECT
+                protocol,
+                port,
+                supported,
+                last_update_ts
+            FROM resolver_service
+            WHERE resolver_id = %s
+            ORDER BY protocol, port
+            """,
+            [resolver_id],
+        )
 
     @cached()
     def get_resolver_qmin(self, ip: str) -> dict:
@@ -1282,7 +1771,570 @@ class DNSResilienceService:
             "last_observation_ts": row.get("last_observation_ts"),
         }
 
-    @cached(ttl=120)
+    @cached(ttl=900)
+    def get_global_data_source_summary(self) -> dict:
+        source_rows = self._fetchall(
+            """
+            SELECT
+                ds.source,
+                ds.url,
+                ds.description,
+                COUNT(r.ip)::INTEGER AS resolver_count
+            FROM data_source ds
+            LEFT JOIN resolver r ON r.source = ds.source
+            GROUP BY ds.source, ds.url, ds.description
+            ORDER BY resolver_count DESC, ds.source
+            """
+        )
+        resolver_count = sum((row.get("resolver_count", 0) or 0) for row in source_rows)
+        distribution = [
+            {
+                "source": row["source"],
+                "url": row.get("url"),
+                "description": row.get("description"),
+                "resolver_count": row.get("resolver_count", 0) or 0,
+                "resolver_pc": self._pc(row.get("resolver_count", 0) or 0, resolver_count),
+            }
+            for row in source_rows
+            if (row.get("resolver_count", 0) or 0) > 0
+        ]
+
+        github_rows = self._fetchall(
+            """
+            SELECT source, url, api_endpoint, documentation_endpoint, description
+            FROM data_source
+            WHERE LOWER(COALESCE(url, '')) LIKE '%%github%%'
+               OR LOWER(COALESCE(api_endpoint, '')) LIKE '%%github%%'
+               OR LOWER(COALESCE(documentation_endpoint, '')) LIKE '%%github%%'
+            ORDER BY source
+            """
+        )
+
+        def github_repository_url(row: dict) -> str | None:
+            candidates = [
+                row.get("documentation_endpoint"),
+                row.get("url"),
+                row.get("api_endpoint"),
+            ]
+            for candidate in candidates:
+                if not candidate or "github" not in candidate.lower():
+                    continue
+                parsed = urllib.parse.urlparse(candidate)
+                hostname = (parsed.hostname or "").lower()
+                path_parts = [part for part in parsed.path.split("/") if part]
+                if hostname in {"github.com", "www.github.com", "raw.githubusercontent.com"} and len(path_parts) >= 2:
+                    return f"https://github.com/{path_parts[0]}/{path_parts[1].removesuffix('.git')}"
+            return None
+
+        github_repositories = []
+        seen_repositories = set()
+        for row in github_rows:
+            source = (row.get("source") or "").lower()
+            if source.startswith("measurements.") or source.startswith("zdns."):
+                continue
+            repository_url = github_repository_url(row)
+            if not repository_url or repository_url in seen_repositories:
+                continue
+            seen_repositories.add(repository_url)
+            parsed = urllib.parse.urlparse(repository_url)
+            repository_name = parsed.path.strip("/")
+            github_repositories.append(
+                {
+                    "name": repository_name,
+                    "url": repository_url,
+                    "description": row.get("description"),
+                }
+            )
+
+        return {
+            "resolver_count": resolver_count,
+            "sources": [
+                {
+                    "source": row["source"],
+                    "url": row.get("url"),
+                    "description": row.get("description"),
+                }
+                for row in source_rows
+            ],
+            "distribution": distribution,
+            "github_repositories": github_repositories,
+        }
+
+    @cached(ttl=900)
+    def get_global_resolver_practice_summary(self) -> dict:
+        rows = self._fetchall(
+            """
+            WITH dual_stack_resolver AS MATERIALIZED (
+                SELECT resolver_id
+                FROM resolver
+                GROUP BY resolver_id
+                HAVING BOOL_OR(family(ip) = 4) AND BOOL_OR(family(ip) = 6)
+            ),
+            safe_qmin_resolver AS MATERIALIZED (
+                SELECT resolver_id
+                FROM qmin_resolver
+                WHERE LOWER(COALESCE(qmin, '')) = 'yes'
+                  AND max_minimise_count <= 10
+            ),
+            secure_protocol_resolver AS MATERIALIZED (
+                SELECT DISTINCT resolver_id
+                FROM resolver_service
+                WHERE supported IS TRUE
+                  AND (
+                      LOWER(TRIM(protocol)) IN ('doq', 'dot')
+                      OR LOWER(TRIM(protocol)) LIKE 'doh%%'
+                  )
+            ),
+            resolver_feature AS (
+                SELECT
+                    r.is_public,
+                    dr.validates IS TRUE AS validates_dnssec,
+                    EXISTS (
+                        SELECT 1
+                        FROM anycast a
+                        WHERE r.ip <<= a.prefix
+                    ) AS is_anycast,
+                    sq.resolver_id IS NOT NULL AS has_safe_qmin,
+                    ds.resolver_id IS NOT NULL AS is_dual_stack,
+                    sp.resolver_id IS NOT NULL AS has_secure_protocol
+                FROM resolver r
+                LEFT JOIN dnssec_resolver dr ON dr.ip = r.ip
+                LEFT JOIN safe_qmin_resolver sq ON sq.resolver_id = r.resolver_id
+                LEFT JOIN dual_stack_resolver ds ON ds.resolver_id = r.resolver_id
+                LEFT JOIN secure_protocol_resolver sp ON sp.resolver_id = r.resolver_id
+            )
+            SELECT
+                is_public,
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (WHERE validates_dnssec)::INTEGER AS dnssec_validating_count,
+                COUNT(*) FILTER (WHERE is_anycast)::INTEGER AS anycast_count,
+                COUNT(*) FILTER (WHERE has_safe_qmin)::INTEGER AS qmin_safe_count,
+                COUNT(*) FILTER (WHERE is_dual_stack)::INTEGER AS dual_stack_count,
+                COUNT(*) FILTER (WHERE has_secure_protocol)::INTEGER AS secure_protocol_count
+            FROM resolver_feature
+            GROUP BY is_public
+            """
+        )
+
+        def empty_scope() -> dict:
+            return {
+                "resolver_count": 0,
+                "dnssec_validating_count": 0,
+                "dnssec_validating_pc": 0.0,
+                "anycast_count": 0,
+                "anycast_pc": 0.0,
+                "qmin_safe_count": 0,
+                "qmin_safe_pc": 0.0,
+                "dual_stack_count": 0,
+                "dual_stack_pc": 0.0,
+                "secure_protocol_count": 0,
+                "secure_protocol_pc": 0.0,
+            }
+
+        summary = {"open": empty_scope(), "closed": empty_scope()}
+        for row in rows:
+            resolver_count = row.get("resolver_count", 0) or 0
+            dnssec_count = row.get("dnssec_validating_count", 0) or 0
+            anycast_count = row.get("anycast_count", 0) or 0
+            qmin_safe_count = row.get("qmin_safe_count", 0) or 0
+            dual_stack_count = row.get("dual_stack_count", 0) or 0
+            secure_protocol_count = row.get("secure_protocol_count", 0) or 0
+            scope = "open" if row.get("is_public") is True else "closed"
+            summary[scope] = {
+                "resolver_count": resolver_count,
+                "dnssec_validating_count": dnssec_count,
+                "dnssec_validating_pc": self._pc(dnssec_count, resolver_count),
+                "anycast_count": anycast_count,
+                "anycast_pc": self._pc(anycast_count, resolver_count),
+                "qmin_safe_count": qmin_safe_count,
+                "qmin_safe_pc": self._pc(qmin_safe_count, resolver_count),
+                "dual_stack_count": dual_stack_count,
+                "dual_stack_pc": self._pc(dual_stack_count, resolver_count),
+                "secure_protocol_count": secure_protocol_count,
+                "secure_protocol_pc": self._pc(secure_protocol_count, resolver_count),
+            }
+        return summary
+
+    @cached(ttl=900)
+    def get_global_resolver_practice_metric(self, scope: str, metric: str) -> dict:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"open", "closed"}:
+            raise ValidationError("Resolver scope must be 'open' or 'closed'")
+
+        predicates = {
+            "dnssec-validation": """
+                EXISTS (
+                    SELECT 1
+                    FROM dnssec_resolver dr
+                    WHERE dr.ip = r.ip AND dr.validates IS TRUE
+                )
+            """,
+            "anycast": """
+                EXISTS (
+                    SELECT 1
+                    FROM anycast a
+                    WHERE r.ip <<= a.prefix
+                )
+            """,
+            "proper-qmin": """
+                EXISTS (
+                    SELECT 1
+                    FROM qmin_resolver q
+                    WHERE q.resolver_id = r.resolver_id
+                      AND LOWER(COALESCE(q.qmin, '')) = 'yes'
+                      AND q.max_minimise_count <= 10
+                )
+            """,
+            "dual-stack": """
+                EXISTS (
+                    SELECT 1 FROM resolver r4
+                    WHERE r4.resolver_id = r.resolver_id AND family(r4.ip) = 4
+                )
+                AND EXISTS (
+                    SELECT 1 FROM resolver r6
+                    WHERE r6.resolver_id = r.resolver_id AND family(r6.ip) = 6
+                )
+            """,
+            "secure-protocols": """
+                EXISTS (
+                    SELECT 1
+                    FROM resolver_service rs
+                    WHERE rs.resolver_id = r.resolver_id
+                      AND rs.supported IS TRUE
+                      AND (
+                          LOWER(TRIM(rs.protocol)) IN ('doq', 'dot')
+                          OR LOWER(TRIM(rs.protocol)) LIKE 'doh%%'
+                      )
+                )
+            """,
+        }
+        normalized_metric = metric.strip().lower()
+        if normalized_metric != "resolver-count" and normalized_metric not in predicates:
+            raise ValidationError(f"Unsupported resolver practice metric: {metric}")
+
+        is_public = normalized_scope == "open"
+        if normalized_metric == "resolver-count":
+            row = self._fetchone(
+                "SELECT COUNT(*)::INTEGER AS resolver_count FROM resolver WHERE is_public = %s",
+                [is_public],
+            ) or {}
+            resolver_count = row.get("resolver_count", 0) or 0
+            return {
+                "scope": normalized_scope,
+                "metric": normalized_metric,
+                "resolver_count": resolver_count,
+                "count": resolver_count,
+                "percent": 100.0 if resolver_count else 0.0,
+            }
+
+        row = self._fetchone(
+            f"""
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (WHERE {predicates[normalized_metric]})::INTEGER AS metric_count
+            FROM resolver r
+            WHERE r.is_public = %s
+            """,
+            [is_public],
+        ) or {}
+        resolver_count = row.get("resolver_count", 0) or 0
+        metric_count = row.get("metric_count", 0) or 0
+        return {
+            "scope": normalized_scope,
+            "metric": normalized_metric,
+            "resolver_count": resolver_count,
+            "count": metric_count,
+            "percent": self._pc(metric_count, resolver_count),
+        }
+
+    @cached(ttl=900)
+    def get_global_dnssec_practice_detail(self, scope: str) -> dict:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope == "country":
+            row = self._fetchone(
+                """
+                SELECT
+                    COUNT(*)::INTEGER AS country_count,
+                    COALESCE(AVG(validating_pc), 0)::DOUBLE PRECISION AS validating_pc,
+                    COALESCE(AVG(partial_validating_pc), 0)::DOUBLE PRECISION AS unknown_pc
+                FROM dnssec_country
+                """
+            ) or {}
+            validating_pc = max(0.0, min(100.0, float(row.get("validating_pc", 0) or 0)))
+            unknown_pc = max(
+                0.0,
+                min(100.0 - validating_pc, float(row.get("unknown_pc", 0) or 0)),
+            )
+            not_validating_pc = max(0.0, 100.0 - validating_pc - unknown_pc)
+            return {
+                "scope": normalized_scope,
+                "country_count": row.get("country_count", 0) or 0,
+                "validating_pc": round(validating_pc, 2),
+                "not_validating_pc": round(not_validating_pc, 2),
+                "unknown_pc": round(unknown_pc, 2),
+            }
+
+        if normalized_scope not in {"open", "closed"}:
+            raise ValidationError("DNSSEC detail scope must be 'open', 'closed', or 'country'")
+        row = self._fetchone(
+            """
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (WHERE dr.validates IS TRUE)::INTEGER AS validating_count,
+                COUNT(*) FILTER (WHERE dr.validates IS FALSE)::INTEGER AS not_validating_count,
+                COUNT(*) FILTER (WHERE dr.ip IS NULL OR dr.validates IS NULL)::INTEGER AS unknown_count
+            FROM resolver r
+            LEFT JOIN dnssec_resolver dr ON dr.ip = r.ip
+            WHERE r.is_public = %s
+            """,
+            [normalized_scope == "open"],
+        ) or {}
+        resolver_count = row.get("resolver_count", 0) or 0
+        validating_count = row.get("validating_count", 0) or 0
+        not_validating_count = row.get("not_validating_count", 0) or 0
+        unknown_count = row.get("unknown_count", 0) or 0
+        return {
+            "scope": normalized_scope,
+            "resolver_count": resolver_count,
+            "validating_count": validating_count,
+            "not_validating_count": not_validating_count,
+            "unknown_count": unknown_count,
+            "validating_pc": self._pc(validating_count, resolver_count),
+            "not_validating_pc": self._pc(not_validating_count, resolver_count),
+            "unknown_pc": self._pc(unknown_count, resolver_count),
+        }
+
+    @cached(ttl=900)
+    def get_global_qmin_practice_detail(self, scope: str) -> dict:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"open", "closed"}:
+            raise ValidationError("QMIN detail scope must be 'open' or 'closed'")
+        row = self._fetchone(
+            """
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (
+                    WHERE LOWER(TRIM(COALESCE(q.qmin, ''))) = 'yes'
+                      AND q.max_minimise_count <= 10
+                )::INTEGER AS proper_count,
+                COUNT(*) FILTER (
+                    WHERE LOWER(TRIM(COALESCE(q.qmin, ''))) = 'yes'
+                      AND q.max_minimise_count > 10
+                )::INTEGER AS risk_count,
+                COUNT(*) FILTER (
+                    WHERE LOWER(TRIM(COALESCE(q.qmin, ''))) = 'no'
+                )::INTEGER AS not_implemented_count,
+                COUNT(*) FILTER (
+                    WHERE LOWER(TRIM(COALESCE(q.qmin, ''))) = 'unstable'
+                )::INTEGER AS unstable_count
+            FROM resolver r
+            LEFT JOIN qmin_resolver q ON q.resolver_id = r.resolver_id
+            WHERE r.is_public = %s
+            """,
+            [normalized_scope == "open"],
+        ) or {}
+        resolver_count = row.get("resolver_count", 0) or 0
+        proper_count = row.get("proper_count", 0) or 0
+        risk_count = row.get("risk_count", 0) or 0
+        not_implemented_count = row.get("not_implemented_count", 0) or 0
+        unstable_count = row.get("unstable_count", 0) or 0
+        unknown_count = max(
+            resolver_count
+            - proper_count
+            - risk_count
+            - not_implemented_count
+            - unstable_count,
+            0,
+        )
+        return {
+            "scope": normalized_scope,
+            "resolver_count": resolver_count,
+            "proper_count": proper_count,
+            "risk_count": risk_count,
+            "not_implemented_count": not_implemented_count,
+            "unstable_count": unstable_count,
+            "unknown_count": unknown_count,
+            "proper_pc": self._pc(proper_count, resolver_count),
+            "risk_pc": self._pc(risk_count, resolver_count),
+            "not_implemented_pc": self._pc(not_implemented_count, resolver_count),
+            "unstable_pc": self._pc(unstable_count, resolver_count),
+            "unknown_pc": self._pc(unknown_count, resolver_count),
+        }
+
+    @cached(ttl=900)
+    def get_global_manrs_practice_detail(self, entity_type: str, scope: str) -> dict:
+        normalized_entity_type = entity_type.strip().lower()
+        normalized_scope = scope.strip().lower()
+        if normalized_entity_type not in {"asn", "country"}:
+            raise ValidationError("MANRS entity type must be 'asn' or 'country'")
+        if normalized_scope not in {"open", "closed"}:
+            raise ValidationError("MANRS resolver scope must be 'open' or 'closed'")
+
+        if normalized_entity_type == "asn":
+            entity_sql = """
+                SELECT DISTINCT ra.asn::BIGINT AS entity
+                FROM resolver r
+                JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
+                WHERE r.is_public = %s AND ra.asn > 0
+            """
+            score_table = "manrs_asn"
+            score_key = "asn"
+        else:
+            entity_sql = """
+                SELECT DISTINCT UPPER(rl.country) AS entity
+                FROM resolver r
+                JOIN resolver_location rl ON rl.resolver_id = r.resolver_id
+                WHERE r.is_public = %s AND rl.country ~ '^[A-Za-z]{3}$'
+            """
+            score_table = "manrs_country"
+            score_key = "country"
+
+        row = self._fetchone(
+            f"""
+            WITH scoped_entities AS (
+                {entity_sql}
+            ),
+            entity_scores AS (
+                SELECT
+                    scoped.entity,
+                    (
+                        SELECT AVG(metric.score)
+                        FROM (
+                            VALUES
+                                (scores.anti_spoofing_score),
+                                (scores.coordination_score),
+                                (scores.filtering_score),
+                                (scores.routing_information_irr_score),
+                                (scores.routing_information_rpki_score)
+                        ) AS metric(score)
+                        WHERE metric.score IS NOT NULL
+                    ) AS readiness_score
+                FROM scoped_entities scoped
+                LEFT JOIN {score_table} scores ON scores.{score_key} = scoped.entity
+            )
+            SELECT
+                COUNT(*)::INTEGER AS entity_count,
+                COUNT(readiness_score)::INTEGER AS scored_entity_count,
+                COALESCE(AVG(readiness_score) * 100.0, 0)::DOUBLE PRECISION
+                    AS average_readiness_pc
+            FROM entity_scores
+            """,
+            [normalized_scope == "open"],
+        ) or {}
+        entity_count = row.get("entity_count", 0) or 0
+        scored_entity_count = row.get("scored_entity_count", 0) or 0
+        average_readiness_pc = max(
+            0.0,
+            min(100.0, float(row.get("average_readiness_pc", 0) or 0)),
+        )
+        return {
+            "entity_type": normalized_entity_type,
+            "scope": normalized_scope,
+            "entity_count": entity_count,
+            "scored_entity_count": scored_entity_count,
+            "unscored_entity_count": max(entity_count - scored_entity_count, 0),
+            "average_readiness_pc": round(average_readiness_pc, 2),
+        }
+
+    @cached(ttl=900)
+    def get_global_bcp38_practice_detail(self, scope: str) -> dict:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"open", "closed"}:
+            raise ValidationError("BCP38 resolver scope must be 'open' or 'closed'")
+
+        row = self._fetchone(
+            f"""
+            WITH scoped_resolvers AS MATERIALIZED (
+                SELECT DISTINCT
+                    r.resolver_id,
+                    ra.asn
+                FROM resolver r
+                LEFT JOIN resolver_asn ra ON ra.resolver_id = r.resolver_id
+                WHERE r.is_public = %s
+            ),
+            caida_allowing_asns AS MATERIALIZED (
+                SELECT DISTINCT sa.asn
+                FROM spoofing_asn sa
+                JOIN spoofing s ON s.prefix = sa.prefix
+                WHERE s.source = 'caida-spoofer'
+                  AND {self._SPOOFING_ALLOW_SQL}
+            ),
+            transparent_forwarder_asns AS MATERIALIZED (
+                SELECT DISTINCT fa.asn::BIGINT AS asn
+                FROM forwarder f
+                JOIN forwarder_asn fa ON fa.forwarder_id = f.forwarder_id
+                WHERE (
+                        LOWER(TRIM(f.type)) = 'transparent'
+                        OR f.transparent_count > 0
+                    )
+                  AND fa.asn > 0
+                  AND f.source = 'odns-api'
+            ),
+            allowing_asns AS MATERIALIZED (
+                SELECT asn FROM caida_allowing_asns
+                UNION
+                SELECT asn FROM transparent_forwarder_asns
+            ),
+            caida_blocking_asns AS MATERIALIZED (
+                SELECT DISTINCT sa.asn
+                FROM spoofing_asn sa
+                JOIN spoofing s ON s.prefix = sa.prefix
+                WHERE s.source = 'caida-spoofer'
+                  AND NOT {self._SPOOFING_ALLOW_SQL}
+                  AND (
+                      LOWER(COALESCE(s.privatespoof, '')) = 'blocked'
+                      OR LOWER(COALESCE(s.routedspoof, '')) = 'blocked'
+                  )
+            ),
+            resolver_evidence AS MATERIALIZED (
+                SELECT
+                    sr.resolver_id,
+                    BOOL_OR(allowing.asn IS NOT NULL) AS allows_spoofing,
+                    BOOL_OR(blocking.asn IS NOT NULL) AS blocks_spoofing
+                FROM scoped_resolvers sr
+                LEFT JOIN allowing_asns allowing ON allowing.asn = sr.asn
+                LEFT JOIN caida_blocking_asns blocking ON blocking.asn = sr.asn
+                GROUP BY sr.resolver_id
+            )
+            SELECT
+                COUNT(*)::INTEGER AS resolver_count,
+                COUNT(*) FILTER (WHERE allows_spoofing)::INTEGER
+                    AS allowing_resolver_count,
+                COUNT(*) FILTER (
+                    WHERE NOT allows_spoofing AND blocks_spoofing
+                )::INTEGER AS blocking_resolver_count,
+                (SELECT COUNT(*)::INTEGER FROM caida_allowing_asns)
+                    AS caida_allowing_asn_count,
+                (SELECT COUNT(*)::INTEGER FROM transparent_forwarder_asns)
+                    AS transparent_forwarder_asn_count,
+                (SELECT COUNT(*)::INTEGER FROM caida_blocking_asns)
+                    AS caida_blocking_asn_count
+            FROM resolver_evidence
+            """,
+            [normalized_scope == "open"],
+        ) or {}
+        resolver_count = row.get("resolver_count", 0) or 0
+        allowing_resolver_count = row.get("allowing_resolver_count", 0) or 0
+        blocking_resolver_count = row.get("blocking_resolver_count", 0) or 0
+        unknown_resolver_count = max(
+            resolver_count - allowing_resolver_count - blocking_resolver_count,
+            0,
+        )
+        return {
+            "scope": normalized_scope,
+            "resolver_count": resolver_count,
+            "allowing_resolver_count": allowing_resolver_count,
+            "allowing_resolver_pc": self._pc(allowing_resolver_count, resolver_count),
+            "blocking_resolver_count": blocking_resolver_count,
+            "blocking_resolver_pc": self._pc(blocking_resolver_count, resolver_count),
+            "unknown_resolver_count": unknown_resolver_count,
+            "unknown_resolver_pc": self._pc(unknown_resolver_count, resolver_count),
+            "caida_allowing_asn_count": row.get("caida_allowing_asn_count", 0) or 0,
+            "transparent_forwarder_asn_count": row.get("transparent_forwarder_asn_count", 0) or 0,
+            "caida_blocking_asn_count": row.get("caida_blocking_asn_count", 0) or 0,
+        }
+
+    @cached(ttl=900)
     def get_global_anycast_summary(self) -> dict:
         row = self._fetchone(
             """
@@ -1294,41 +2346,129 @@ class DNSResilienceService:
             FROM resolver
             """
         ) or {}
-        top_anycast_resolvers = self._fetchall(
+        rankings = self._fetchone(
             """
             WITH resolver_anycast_prefix AS (
-                SELECT r.ip, a.prefix
+                SELECT DISTINCT r.resolver_id, r.ip, a.prefix
                 FROM resolver r
                 JOIN anycast a ON r.ip <<= a.prefix
             ),
             country_agg AS (
                 SELECT
+                    rap.resolver_id,
                     rap.ip,
                     COALESCE(SUM(ac.country_count), 0)::INTEGER AS anycast_site_count,
                     COUNT(DISTINCT ac.country)::INTEGER AS anycast_country_count
                 FROM resolver_anycast_prefix rap
                 LEFT JOIN anycast_country_backend ac ON ac.prefix = rap.prefix
-                GROUP BY rap.ip
+                GROUP BY rap.resolver_id, rap.ip
             ),
             asn_agg AS (
                 SELECT
+                    rap.resolver_id,
                     rap.ip,
                     COUNT(DISTINCT ab.asn)::INTEGER AS anycast_asn_count
                 FROM resolver_anycast_prefix rap
                 LEFT JOIN anycast_asn_backend ab ON ab.prefix = rap.prefix
-                GROUP BY rap.ip
+                GROUP BY rap.resolver_id, rap.ip
+            ),
+            resolver_stats AS MATERIALIZED (
+                SELECT
+                    host(c.ip) AS ip,
+                    COALESCE(NULLIF(TRIM(ro.org), ''), 'Unknown') AS company,
+                    c.anycast_site_count,
+                    c.anycast_country_count,
+                    COALESCE(a.anycast_asn_count, 0)::INTEGER AS anycast_asn_count
+                FROM country_agg c
+                LEFT JOIN asn_agg a
+                    ON a.resolver_id = c.resolver_id
+                   AND a.ip = c.ip
+                LEFT JOIN resolver_org ro ON ro.resolver_id = c.resolver_id
+            ),
+            company_prefixes AS MATERIALIZED (
+                SELECT DISTINCT
+                    TRIM(ro.org) AS company,
+                    rap.prefix
+                FROM resolver_anycast_prefix rap
+                JOIN resolver_org ro ON ro.resolver_id = rap.resolver_id
+                WHERE NULLIF(TRIM(ro.org), '') IS NOT NULL
+            ),
+            company_site_stats AS MATERIALIZED (
+                SELECT
+                    cp.company,
+                    COALESCE(SUM(ac.country_count), 0)::BIGINT AS anycast_site_count
+                FROM company_prefixes cp
+                LEFT JOIN anycast_country_backend ac ON ac.prefix = cp.prefix
+                GROUP BY cp.company
+            ),
+            company_ip_stats AS MATERIALIZED (
+                SELECT
+                    TRIM(ro.org) AS company,
+                    COUNT(DISTINCT rap.ip)::INTEGER AS anycast_ip_count
+                FROM resolver_anycast_prefix rap
+                JOIN resolver_org ro ON ro.resolver_id = rap.resolver_id
+                WHERE NULLIF(TRIM(ro.org), '') IS NOT NULL
+                GROUP BY TRIM(ro.org)
+            ),
+            company_stats AS MATERIALIZED (
+                SELECT
+                    sites.company,
+                    sites.anycast_site_count,
+                    ips.anycast_ip_count
+                FROM company_site_stats sites
+                JOIN company_ip_stats ips ON ips.company = sites.company
             )
             SELECT
-                host(c.ip) AS ip,
-                c.anycast_site_count,
-                c.anycast_country_count,
-                COALESCE(a.anycast_asn_count, 0)::INTEGER AS anycast_asn_count
-            FROM country_agg c
-            LEFT JOIN asn_agg a ON a.ip = c.ip
-            ORDER BY c.anycast_site_count DESC, c.anycast_country_count DESC, COALESCE(a.anycast_asn_count, 0) DESC, host(c.ip)
-            LIMIT 5
+                COALESCE((
+                    SELECT JSONB_AGG(
+                        TO_JSONB(ranked)
+                        ORDER BY ranked.anycast_site_count DESC,
+                                 ranked.anycast_country_count DESC,
+                                 ranked.anycast_asn_count DESC,
+                                 ranked.ip
+                    )
+                    FROM (
+                        SELECT
+                            ip,
+                            company,
+                            anycast_site_count,
+                            anycast_country_count,
+                            anycast_asn_count
+                        FROM resolver_stats
+                        ORDER BY anycast_site_count DESC,
+                                 anycast_country_count DESC,
+                                 anycast_asn_count DESC,
+                                 ip
+                        LIMIT 5
+                    ) ranked
+                ), '[]'::JSONB) AS top_anycast_resolvers,
+                COALESCE((
+                    SELECT JSONB_AGG(
+                        TO_JSONB(ranked_company)
+                        ORDER BY ranked_company.anycast_site_count DESC,
+                                 ranked_company.anycast_ip_count DESC,
+                                 ranked_company.company
+                    )
+                    FROM (
+                        SELECT
+                            company,
+                            anycast_site_count,
+                            anycast_ip_count
+                        FROM company_stats
+                        ORDER BY anycast_site_count DESC,
+                                 anycast_ip_count DESC,
+                                 company
+                        LIMIT 5
+                    ) ranked_company
+                ), '[]'::JSONB) AS top_anycast_companies
             """
-        )
+        ) or {}
+        top_anycast_resolvers = rankings.get("top_anycast_resolvers", []) or []
+        top_anycast_companies = rankings.get("top_anycast_companies", []) or []
+        if isinstance(top_anycast_resolvers, str):
+            top_anycast_resolvers = json.loads(top_anycast_resolvers)
+        if isinstance(top_anycast_companies, str):
+            top_anycast_companies = json.loads(top_anycast_companies)
         resolver_count = row.get("resolver_count", 0) or 0
         resolver_anycast_count = row.get("resolver_anycast_count", 0) or 0
         return {
@@ -1336,9 +2476,10 @@ class DNSResilienceService:
             "resolver_anycast_count": resolver_anycast_count,
             "resolver_anycast_pc": self._pc(resolver_anycast_count, resolver_count),
             "top_anycast_resolvers": top_anycast_resolvers,
+            "top_anycast_companies": top_anycast_companies,
         }
 
-    @cached(ttl=120)
+    @cached(ttl=900)
     def get_global_qmin_summary(self) -> dict:
         row = self._fetchone(
             """
@@ -1392,33 +2533,58 @@ class DNSResilienceService:
             "qmin_minimize_one_lab_distribution": qmin_minimize_one_lab,
         }
 
-    @cached(ttl=120)
+    @cached(ttl=900)
     def get_global_protocol_summary(self) -> dict:
         total_row = self._fetchone("SELECT COUNT(DISTINCT resolver_id)::INTEGER AS resolver_count FROM resolver") or {}
         resolver_count = total_row.get("resolver_count", 0) or 0
         protocol_rows = self._fetchall(
             """
-            SELECT protocol, COUNT(DISTINCT resolver_id)::INTEGER AS count
-            FROM resolver_service
-            WHERE protocol IS NOT NULL AND TRIM(protocol) <> ''
+            WITH per_resolver_protocol AS (
+                SELECT resolver_id, protocol, BOOL_OR(supported)::BOOLEAN AS supported
+                FROM resolver_service
+                WHERE protocol IS NOT NULL AND TRIM(protocol) <> ''
+                GROUP BY resolver_id, protocol
+            )
+            SELECT
+                protocol,
+                COUNT(*)::INTEGER AS tested_count,
+                COUNT(*) FILTER (WHERE supported IS TRUE)::INTEGER AS count,
+                COUNT(*) FILTER (WHERE supported IS FALSE)::INTEGER AS unsupported_count
+            FROM per_resolver_protocol
             GROUP BY protocol
             ORDER BY count DESC, protocol
             """
         )
         port_rows = self._fetchall(
             """
-            SELECT port, COUNT(DISTINCT resolver_id)::INTEGER AS count
-            FROM resolver_service
-            WHERE port IS NOT NULL
+            WITH per_resolver_port AS (
+                SELECT resolver_id, port, BOOL_OR(supported)::BOOLEAN AS supported
+                FROM resolver_service
+                WHERE port IS NOT NULL
+                GROUP BY resolver_id, port
+            )
+            SELECT
+                port,
+                COUNT(*)::INTEGER AS tested_count,
+                COUNT(*) FILTER (WHERE supported IS TRUE)::INTEGER AS count,
+                COUNT(*) FILTER (WHERE supported IS FALSE)::INTEGER AS unsupported_count
+            FROM per_resolver_port
             GROUP BY port
             ORDER BY count DESC, port
             """
         )
         service_rows = self._fetchall(
             """
-            SELECT protocol, port, COUNT(DISTINCT resolver_id)::INTEGER AS count
+            SELECT
+                protocol,
+                port,
+                COUNT(DISTINCT resolver_id)::INTEGER AS tested_count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE supported IS TRUE)::INTEGER AS count,
+                COUNT(DISTINCT resolver_id) FILTER (WHERE supported IS FALSE)::INTEGER AS unsupported_count
             FROM resolver_service
-            WHERE protocol IS NOT NULL AND TRIM(protocol) <> '' AND port IS NOT NULL
+            WHERE protocol IS NOT NULL
+              AND TRIM(protocol) <> ''
+              AND port IS NOT NULL
             GROUP BY protocol, port
             ORDER BY count DESC, protocol, port
             """
@@ -1426,11 +2592,27 @@ class DNSResilienceService:
         return {
             "resolver_count": resolver_count,
             "protocols": [
-                {"protocol": row["protocol"], "count": row["count"], "percent": self._pc(row["count"], resolver_count)}
+                {
+                    "protocol": row["protocol"],
+                    "count": row["count"],
+                    "tested_count": row["tested_count"],
+                    "unsupported_count": row["unsupported_count"],
+                    "percent": self._pc(row["count"], resolver_count),
+                    "tested_percent": self._pc(row["tested_count"], resolver_count),
+                    "support_rate_pc": self._pc(row["count"], row["tested_count"]),
+                }
                 for row in protocol_rows
             ],
             "ports": [
-                {"port": row["port"], "count": row["count"], "percent": self._pc(row["count"], resolver_count)}
+                {
+                    "port": row["port"],
+                    "count": row["count"],
+                    "tested_count": row["tested_count"],
+                    "unsupported_count": row["unsupported_count"],
+                    "percent": self._pc(row["count"], resolver_count),
+                    "tested_percent": self._pc(row["tested_count"], resolver_count),
+                    "support_rate_pc": self._pc(row["count"], row["tested_count"]),
+                }
                 for row in port_rows
             ],
             "services": [
@@ -1438,7 +2620,11 @@ class DNSResilienceService:
                     "protocol": row["protocol"],
                     "port": row["port"],
                     "count": row["count"],
+                    "tested_count": row["tested_count"],
+                    "unsupported_count": row["unsupported_count"],
                     "percent": self._pc(row["count"], resolver_count),
+                    "tested_percent": self._pc(row["tested_count"], resolver_count),
+                    "support_rate_pc": self._pc(row["count"], row["tested_count"]),
                 }
                 for row in service_rows
             ],
@@ -1575,19 +2761,10 @@ class DNSResilienceService:
                 FROM resolver
                 WHERE ip = %s::inet
             ),
-            target_forwarder AS (
-                SELECT forwarder_id
-                FROM forwarder
-                WHERE ip = %s::inet
-            ),
             relaying_forwarders AS (
                 SELECT DISTINCT fru.forwarder_id
                 FROM forwarder_resolver_upstream fru
                 JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
-                UNION
-                SELECT DISTINCT ffu.forwarder_id
-                FROM forwarder_forwarder_upstream ffu
-                JOIN target_forwarder tf ON tf.forwarder_id = ffu.upstream_forwarder_id
             )
             SELECT
                 COUNT(DISTINCT rf.forwarder_id)::INTEGER AS forwarder_entry_count,
@@ -1599,6 +2776,7 @@ class DNSResilienceService:
                         FROM forwarder_protocol fp
                         WHERE fp.forwarder_id = rf.forwarder_id
                           AND LOWER(fp.protocol) = 'tcp'
+                          AND fp.supported IS TRUE
                     )
                 )::INTEGER AS forwarder_tcp_count,
                 COUNT(DISTINCT rf.forwarder_id) FILTER (
@@ -1607,6 +2785,7 @@ class DNSResilienceService:
                         FROM forwarder_protocol fp
                         WHERE fp.forwarder_id = rf.forwarder_id
                           AND LOWER(fp.protocol) = 'udp'
+                          AND fp.supported IS TRUE
                     )
                 )::INTEGER AS forwarder_udp_count,
                 COUNT(DISTINCT rf.forwarder_id) FILTER (
@@ -1615,19 +2794,21 @@ class DNSResilienceService:
                         FROM forwarder_protocol fp
                         WHERE fp.forwarder_id = rf.forwarder_id
                           AND LOWER(fp.protocol) = 'tcp'
+                          AND fp.supported IS TRUE
                     )
                     AND EXISTS (
                         SELECT 1
                         FROM forwarder_protocol fp
                         WHERE fp.forwarder_id = rf.forwarder_id
                           AND LOWER(fp.protocol) = 'udp'
+                          AND fp.supported IS TRUE
                     )
                 )::INTEGER AS forwarder_tcp_udp_count
             FROM relaying_forwarders rf
             LEFT JOIN forwarder_asn fa ON fa.forwarder_id = rf.forwarder_id
             LEFT JOIN forwarder_location fl ON fl.forwarder_id = rf.forwarder_id
             """,
-            [normalized, normalized],
+            [normalized],
         ) or {}
         countries = self._fetchall(
             """
@@ -1636,19 +2817,10 @@ class DNSResilienceService:
                 FROM resolver
                 WHERE ip = %s::inet
             ),
-            target_forwarder AS (
-                SELECT forwarder_id
-                FROM forwarder
-                WHERE ip = %s::inet
-            ),
             relaying_forwarders AS (
                 SELECT DISTINCT fru.forwarder_id
                 FROM forwarder_resolver_upstream fru
                 JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
-                UNION
-                SELECT DISTINCT ffu.forwarder_id
-                FROM forwarder_forwarder_upstream ffu
-                JOIN target_forwarder tf ON tf.forwarder_id = ffu.upstream_forwarder_id
             )
             SELECT
                 fl.country,
@@ -1659,7 +2831,7 @@ class DNSResilienceService:
             GROUP BY fl.country
             ORDER BY count DESC, fl.country
             """,
-            [normalized, normalized],
+            [normalized],
         )
         asns = self._fetchall(
             """
@@ -1668,19 +2840,10 @@ class DNSResilienceService:
                 FROM resolver
                 WHERE ip = %s::inet
             ),
-            target_forwarder AS (
-                SELECT forwarder_id
-                FROM forwarder
-                WHERE ip = %s::inet
-            ),
             relaying_forwarders AS (
                 SELECT DISTINCT fru.forwarder_id
                 FROM forwarder_resolver_upstream fru
                 JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
-                UNION
-                SELECT DISTINCT ffu.forwarder_id
-                FROM forwarder_forwarder_upstream ffu
-                JOIN target_forwarder tf ON tf.forwarder_id = ffu.upstream_forwarder_id
             )
             SELECT
                 fa.asn,
@@ -1691,7 +2854,7 @@ class DNSResilienceService:
             GROUP BY fa.asn
             ORDER BY count DESC, fa.asn
             """,
-            [normalized, normalized],
+            [normalized],
         )
         return {
             "forwarder_entry_count": row.get("forwarder_entry_count", 0) or 0,
@@ -1702,6 +2865,111 @@ class DNSResilienceService:
             "forwarder_tcp_udp_count": row.get("forwarder_tcp_udp_count", 0) or 0,
             "forwarder_countries": countries,
             "forwarder_asns": asns,
+        }
+
+    @cached()
+    def get_upstream_forwarder_lists_by_ip(
+        self,
+        ip: str,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> dict:
+        normalized = self.validate_ip_address(ip)
+        total_row = self._fetchone(
+            """
+            SELECT COUNT(DISTINCT fru.forwarder_id)::INTEGER AS total_forwarders
+            FROM forwarder_resolver_upstream fru
+            JOIN resolver r ON r.resolver_id = fru.upstream_resolver_id
+            WHERE r.ip = %s::INET
+            """,
+            [normalized],
+        )
+        forwarders = self._fetchall(
+            """
+            WITH target_resolver AS (
+                SELECT resolver_id
+                FROM resolver
+                WHERE ip = %s::INET
+            ),
+            relaying_forwarders AS (
+                SELECT DISTINCT fru.forwarder_id
+                FROM forwarder_resolver_upstream fru
+                JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
+            )
+            SELECT
+                host(f.ip) AS ip,
+                f.type,
+                f.is_public,
+                f.last_update_ts
+            FROM relaying_forwarders rf
+            JOIN forwarder f ON f.forwarder_id = rf.forwarder_id
+            ORDER BY f.ip
+            LIMIT %s OFFSET %s
+            """,
+            [normalized, page_size, (page - 1) * page_size],
+        )
+        countries = self._fetchall(
+            """
+            WITH target_resolver AS (
+                SELECT resolver_id
+                FROM resolver
+                WHERE ip = %s::INET
+            ),
+            relaying_forwarders AS (
+                SELECT DISTINCT fru.forwarder_id
+                FROM forwarder_resolver_upstream fru
+                JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
+            )
+            SELECT
+                fl.country,
+                COUNT(DISTINCT rf.forwarder_id)::INTEGER AS count
+            FROM relaying_forwarders rf
+            JOIN forwarder_location fl ON fl.forwarder_id = rf.forwarder_id
+            WHERE fl.country IS NOT NULL AND fl.country <> ''
+            GROUP BY fl.country
+            ORDER BY count DESC, fl.country
+            """,
+            [normalized],
+        )
+        asns = self._fetchall(
+            """
+            WITH target_resolver AS (
+                SELECT resolver_id
+                FROM resolver
+                WHERE ip = %s::INET
+            ),
+            relaying_forwarders AS (
+                SELECT DISTINCT fru.forwarder_id
+                FROM forwarder_resolver_upstream fru
+                JOIN target_resolver tr ON tr.resolver_id = fru.upstream_resolver_id
+            )
+            SELECT
+                fa.asn,
+                COUNT(DISTINCT rf.forwarder_id)::INTEGER AS count
+            FROM relaying_forwarders rf
+            JOIN forwarder_asn fa ON fa.forwarder_id = rf.forwarder_id
+            WHERE fa.asn IS NOT NULL
+            GROUP BY fa.asn
+            ORDER BY count DESC, fa.asn
+            """,
+            [normalized],
+        )
+        return {
+            "resolver_ip": normalized,
+            "page": page,
+            "page_size": page_size,
+            "total_forwarders": (total_row or {}).get("total_forwarders", 0) or 0,
+            "forwarders": [
+                {
+                    "ip": row["ip"],
+                    "type": row.get("type"),
+                    "is_public": row.get("is_public"),
+                    "last_update_ts": row.get("last_update_ts"),
+                }
+                for row in forwarders
+            ],
+            "countries": countries,
+            "asns": asns,
         }
 
     @cached()
@@ -1719,6 +2987,7 @@ class DNSResilienceService:
         sibling_ips = self.get_resolver_sibling_ips(resolver.get("id"), core["resolver_ip"])
         resolver_domains = self.get_resolver_domains(resolver.get("id"))
         resolver_services = self.get_resolver_services(resolver.get("id"))
+        resolver_protocol_results = self.get_resolver_protocol_results(resolver.get("id"))
         resolver_dohpath = self.get_resolver_dohpath(resolver.get("id"))
         tokens = self._protocol_tokens(",".join(resolver_services) or resolver.get("supported_protocols"))
         return {
@@ -1739,6 +3008,7 @@ class DNSResilienceService:
             "resolver_is_public": resolver.get("is_public"),
             "resolver_supported_protocols": ",".join(resolver_services) if resolver_services else resolver.get("supported_protocols"),
             "resolver_services": resolver_services,
+            "resolver_protocol_results": resolver_protocol_results,
             "resolver_supports_tcp": "dotcp" in tokens,
             "resolver_supports_udp": "doudp" in tokens,
             "resolver_supports_ipv4": any(row.get("family") == 4 for row in alternative_ips),
