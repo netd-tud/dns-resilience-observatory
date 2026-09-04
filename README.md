@@ -197,10 +197,12 @@ docker compose logs pgadmin-init
 
 ## Data Gathering (Celery + RabbitMQ)
 
-The data-gathering worker runs scheduled tasks and can be triggered manually. Tasks live under
-`data_gathering/tasks/<topic>/` and are auto-discovered.
+The default Compose configuration runs data-gathering in worker-only mode. Celery Beat and its
+schedule are disabled, so jobs run only when explicitly submitted. Tasks live under
+`data_gathering/tasks/<topic>/` and are auto-discovered. The measurements worker likewise has no
+scheduler and only consumes explicitly submitted measurement tasks.
 
-Scheduling is controlled via environment variables on the data-gathering service:
+To re-enable scheduling later, add `--beat` to the data-gathering worker command and configure:
 
 - `CELERY_SCHEDULED_TASK`: task name to run on a schedule (default: `data_gathering.tasks.dispatch.run_all`).
 - `CELERY_SCHEDULE_CRON`: cron expression with 5 fields (default: `0 0 * * *`).
@@ -324,7 +326,9 @@ docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.dispatch.bootstrap_if_empty
 ```
 
-The one-shot `data-gathering-run-on-start` service inserts data sources first and then uses this bootstrap task automatically. It skips itself once core content tables already contain rows.
+The one-shot `data-gathering-run-on-start` service is disabled by default through the
+`automatic-jobs` Compose profile. Invoke the bootstrap task manually as above, or explicitly enable
+that profile when automatic startup behavior is desired.
 
 4. Manual first-bootstrap task order:
 
@@ -430,23 +434,24 @@ force = false
 
 The task name is `data_gathering.tasks.webpage_resolver.refresh`.
 
-### IPv6 Hitlist Resolver Data
+### IPv6 Hitlist Measurement Candidates
 
 The IPv6 Hitlist refresh reads its registration credentials from
 `data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf`. It lists the authenticated output index,
 selects the newest `YYYY-MM/` directory, and downloads its newest
 `YYYY-MM-DD-udp53.csv.xz` file. If the newest directory has no matching file, it checks the
-preceding listed month. The parser streams the compressed CSV and retains only rows where
-`success == 1` whose hex-encoded `data` field is a structurally valid DNS response with the
-complete base/EDNS response code `NOERROR`. It produces the four importer fields `resolver_ip`,
-`port`, `protocol`, and `supported`.
+preceding listed month. It exports all unique IPv6 `saddr` values to
+`/data/exports/resolver-ipv6-YYYY-MM-DD.txt` as unverified measurement candidates.
 
-The importer upserts these addresses as verified public recursive DNS resolvers and stores each
-observed service in `resolver_service`. Its normal protocol normalization records the source
-classification `udp` as `doudp`. A successful import also updates the source's
-`last_retrieved_ts`.
+The scheduled task does not insert candidates directly because the TUM DNS response alone cannot
+distinguish an open recursive DNS resolver from a forwarder. Instead, it automatically queues a
+task on the `measurements` worker that queries every candidate for
+`rr-mirror.research6.nawrocki.berlin` and then imports only ZDNS `NOERROR` results in which the
+queried IPv6 address occurs in the AAAA answer set. The mirror control address
+`2001:67c:254::216` is excluded from that comparison.
 
-Run the complete download/parse/import task with:
+Run the complete download, candidate export, RR-mirror measurement, and matching-resolver import
+pipeline with:
 
 ```bash
 docker compose run --rm data-gathering python3 db/data_source.py
@@ -455,7 +460,12 @@ docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.ipv6_hitlist.refresh
 ```
 
-The parser and importer can also be invoked separately:
+The download/export phase returns a `measurement_import.task_id`; measurement progress and the
+final resolver import report are written to the `measurements` container log.
+
+The legacy TUM DNS payload parser can still be invoked separately for analysis, but its output is
+not sufficient to classify an address as an open recursive DNS resolver and is no longer imported
+by the scheduled task:
 
 ```bash
 docker compose run --rm data-gathering \
@@ -463,22 +473,17 @@ docker compose run --rm data-gathering \
 	/data/external/ipv6-hitlist/2026-08/2026-08-22-udp53.csv.xz \
 	--output /data/interim/ipv6-hitlist/2026-08/2026-08-22-udp53.parsed.csv
 
-docker compose run --rm data-gathering \
-	python3 data_gathering/imports/ipv6_hitlist/import_ipv6_hitlist.py \
-	/data/interim/ipv6-hitlist/2026-08/2026-08-22-udp53.parsed.csv \
-	--no-dry-run
 ```
 
-To download the latest file and export every deduplicated IPv6 `saddr`—one plain address per line,
-without a header or prefix length—run:
+To run the same standalone candidate export—one plain address per line, without a header or prefix
+length—use:
 
 ```bash
 docker compose run --rm data-gathering \
 	python3 data_gathering/tasks/ipv6_hitlist/export_ipv6_resolver_ips.py
 ```
 
-This standalone export does not inspect `success`, DNS RCODE, or the `data` field. Those filters
-remain exclusive to database ingestion. The output is written to
+The export does not inspect `success`, DNS RCODE, or the `data` field. The output is written to
 `/data/exports/resolver-ipv6-YYYY-MM-DD.txt`, using the measurement date from the selected Hitlist
 filename. On the host this is available below `data/exports/`.
 

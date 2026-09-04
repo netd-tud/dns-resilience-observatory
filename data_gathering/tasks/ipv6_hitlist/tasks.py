@@ -20,7 +20,7 @@ def refresh() -> dict[str, object]:
         if not acquired:
             logger.info("IPv6 Hitlist: refresh already running; skipping overlapping task")
             return {"skipped": True, "reason": "already_running"}
-        logger.info("IPv6 Hitlist: refreshing UDP/53 resolver addresses")
+        logger.info("IPv6 Hitlist: refreshing candidates and scheduling verified resolver import")
         report = update_ipv6_hitlist()
         logger.info("IPv6 Hitlist: refresh complete: {}", report)
         return report

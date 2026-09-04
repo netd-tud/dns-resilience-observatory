@@ -10,6 +10,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from data_gathering.task_lock import advisory_task_lock
 from measurements.celery_app import app
 from measurements.scripts.get_resolvers import query_resolvers
 
@@ -18,6 +19,7 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 CONFIG_FILE = Path(__file__).with_suffix(".conf")
 EXAMPLE_CONFIG_FILE = Path(__file__).with_suffix(".conf.example")
 DEFAULT_DOMAIN = "rr-mirror.research6.nawrocki.berlin"
+CANDIDATE_TASK_NAME = "measurements.tasks.verify_ipv6_resolvers.import_candidates"
 
 
 def _optional_bool(value: str | None) -> bool | None:
@@ -66,6 +68,82 @@ def _ipv6_nameserver_ips(rows: list[dict[str, object]]) -> tuple[list[str], int,
             continue
         resolver_ips.append(str(ip))
     return resolver_ips, skipped_non_global, skipped_non_ipv6
+
+
+def run_verify_ipv6_candidate_file(
+    input_path: Path,
+    output_path: Path,
+    *,
+    source: str,
+    is_public: bool = True,
+    config_path: Path = CONFIG_FILE,
+) -> dict[str, object]:
+    """Measure an external IPv6 candidate list and import only self-answering resolvers."""
+
+    from data_gathering.imports.resolver.import_resolvers import import_resolvers
+
+    started = time.monotonic()
+    config = load_config(config_path)
+    domain = config.get("domain", DEFAULT_DOMAIN).strip() or DEFAULT_DOMAIN
+    zdns_path = _resolve_path(config.get("zdns_path", "measurements/tools/zdns/zdns"))
+    if not input_path.is_file():
+        raise FileNotFoundError(f"Missing IPv6 resolver candidate file: {input_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        str(zdns_path),
+        "AAAA",
+        "--name-server-mode",
+        "--6",
+        f"--override-name={domain}",
+        f"--input-file={input_path}",
+        f"--output-file={output_path}",
+        f"--threads={config.get('threads', '100')}",
+        f"--network-timeout={config.get('network_timeout', '8')}",
+        f"--retries={config.get('retries', '1')}",
+    ]
+    if _optional_bool(config.get("no_recycle_sockets", "true")):
+        command.append("--no-recycle-sockets")
+
+    logger.info("Running IPv6 candidate ZDNS command: {command}", command=" ".join(command))
+    process = subprocess.Popen(
+        command,
+        cwd=BASE_DIR,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        line = line.strip()
+        if line:
+            logger.info("zdns: {line}", line=line)
+    return_code = process.wait()
+    if return_code != 0:
+        raise RuntimeError(f"IPv6 candidate ZDNS scan failed with exit code {return_code}")
+
+    import_report = import_resolvers(
+        output_path,
+        mapping=None,
+        modules="resolver",
+        dry_run=False,
+        verified=True,
+        source=source,
+        is_public=is_public,
+        zdns_module="AAAA",
+    )
+    elapsed = time.monotonic() - started
+    report = {
+        "input_file": str(input_path),
+        "output_file": str(output_path),
+        "domain": domain,
+        "source": source,
+        "import": import_report,
+        "elapsed_seconds": round(elapsed, 3),
+    }
+    logger.info("IPv6 candidate measurement and import complete: {report}", report=report)
+    return report
 
 
 def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, object]:
@@ -186,3 +264,20 @@ def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, obje
 @app.task(name="measurements.tasks.verify_ipv6_resolvers.run")
 def run() -> dict[str, object]:
     return run_verify_ipv6_resolvers()
+
+
+@app.task(name=CANDIDATE_TASK_NAME)
+def import_candidates(
+    input_file: str,
+    output_file: str,
+    source: str = "ipv6-hitlist-service",
+) -> dict[str, object]:
+    with advisory_task_lock(CANDIDATE_TASK_NAME) as acquired:
+        if not acquired:
+            logger.info("IPv6 candidate verification is already running; skipping overlapping task")
+            return {"skipped": True, "reason": "already_running"}
+        return run_verify_ipv6_candidate_file(
+            Path(input_file),
+            Path(output_file),
+            source=source,
+        )

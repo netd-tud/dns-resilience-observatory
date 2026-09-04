@@ -1,1 +1,1 @@
-"""Scheduled IPv6 Hitlist Service import."""
+"""Scheduled IPv6 Hitlist candidate measurement and resolver import."""

@@ -65,7 +65,8 @@ services:
       context: .
     container_name: dns-resilience-observatory-data-gathering
     restart: unless-stopped
-    command: celery -A data_gathering.celery_app worker --beat --loglevel=info
+    # Worker-only mode: tasks run only when explicitly submitted. Celery Beat is disabled.
+    command: celery -A data_gathering.celery_app worker --loglevel=info
     env_file:
       - .env
     volumes:
@@ -74,7 +75,7 @@ services:
       - ./data_gathering/tasks/manrs/manrs.conf:/app/data_gathering/tasks/manrs/manrs.conf:ro
       - ./data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:/app/data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf:ro
     environment:
-      RUN_STARTUP_TASKS: "true"
+      RUN_STARTUP_TASKS: "false"
       DATABASE_ENGINE: postgresql
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
@@ -86,8 +87,7 @@ services:
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
       CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
       CELERY_TIMEZONE: UTC
-      CELERY_SCHEDULED_TASK: data_gathering.tasks.dispatch.run_all
-      CELERY_SCHEDULE_CRON: "0 0 * * *"
+      CELERY_SCHEDULED_TASK: ""
       DATA_GATHERING_TASKS: ""
       DATA_DIR: /data
       ODNS_DATA_DIR: /data/external
@@ -101,6 +101,8 @@ services:
       - worker_broker_network
 
   data-gathering-run-on-start:
+    # Opt-in only. Start explicitly with: docker compose --profile automatic-jobs up
+    profiles: ["automatic-jobs"]
     build:
       context: .
     container_name: dns-resilience-observatory-data-gathering-run-on-start
