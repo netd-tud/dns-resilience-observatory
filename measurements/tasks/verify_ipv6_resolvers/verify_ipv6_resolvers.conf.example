@@ -1,13 +1,9 @@
 [verify_ipv6_resolvers]
 domain = rr-mirror.research6.nawrocki.berlin
-zdns_path = measurements/tools/zdns/zdns
+verification_source = measurements.zdns.ipv6-verification
 output_dir = data/measurements/verify_ipv6_resolvers
 input_file = ipv6_resolvers.txt
 output_file = verify_ipv6_resolvers.jsonl
-threads = 100
-network_timeout = 8
-retries = 1
-no_recycle_sockets = true
 limit =
 verified =
 is_public =

@@ -24,6 +24,7 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | Runtime file | Purpose |
 | --- | --- |
 | `.env` | Local Docker/Django/PostgreSQL/pgAdmin settings and data-gathering database connection settings. |
+| `measurements/zdns.conf` | Shared ZDNS binary, source-address, concurrency, timeout, and retry settings. |
 | `data_gathering/external_sources/caida/spoofer/spoofer.conf` | CAIDA Spoofer fetcher URL, paging, and data directory. |
 | `data_gathering/tasks/apnic_dnssec/apnic_dnssec.conf` | APNIC DNSSEC task URLs, worker counts, batch sizes, and data directory. |
 | `data_gathering/tasks/caida_spoofer/caida_spoofer.conf` | CAIDA Spoofer task fetch/import settings. |
@@ -43,6 +44,7 @@ Copy examples before running services:
 
 ```bash
 cp .env.example .env
+cp measurements/zdns.conf.example measurements/zdns.conf
 cp data_gathering/tasks/manrs/manrs.conf.example data_gathering/tasks/manrs/manrs.conf
 cp data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf.example data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
@@ -56,13 +58,14 @@ cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.e
 Replace these placeholders for setup:
 
 - `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, and `DJANGO_SUPERUSER_PASSWORD`; adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
+- `measurements/zdns.conf`: set `ipv6_local_addr` to the global IPv6 address on the host's measurement interface. The shared file also controls ZDNS threads, timeout, retries, socket recycling, and binary path. It is ignored by Git and mounted read-only into the host-network runner.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
 - `data_gathering/tasks/manrs/manrs.conf`: replace `<MANRS_API_KEY>` with the MANRS Observatory API key, then adjust the API URL, request rate, concurrency, retry, timeout, and batch settings when needed. This runtime file is ignored by Git and mounted read-only into the data-gathering containers.
 - `data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf`: replace `<IPV6_HITLIST_USERNAME>` and `<IPV6_HITLIST_PASSWORD>` with the registration credentials. The credentials remain in this ignored runtime file and are sent with HTTP Basic authentication.
 - `data_gathering/tasks/rpki/rpki.conf`: adjust the public API URL, request rate, concurrency, retry, timeout, and batch settings when needed.
 - `measurements/tasks/verify_resolvers/verify_resolvers.conf`: set `zdns_path` to the built ZDNS binary if it differs from `measurements/tools/zdns/zdns`; adjust `domain` if needed.
 - `measurements/tasks/verify_ipv6_resolvers/verify_ipv6_resolvers.conf`: selects IPv6 resolver addresses and queries the configured domain's AAAA record using IPv6 transport; the default query name is `rr-mirror.research6.nawrocki.berlin`.
-- `measurements/tasks/dnssec_validation/dnssec_validation.conf`: adjust ZDNS execution settings and resolver filters; keep `domain = dnssec-failed.org` for the validation heuristic.
+- `measurements/tasks/dnssec_validation/dnssec_validation.conf`: adjust resolver filters and keep `domain = dnssec-failed.org` for the validation heuristic. Its Celery task defaults to the configured `ip_version`; the host-network runner explicitly selects IPv6.
 - `measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf`: adjust `modules` (`svcb`, `svcb,ptr,a`, or `svcb,ptr,a,aaaa,https`), `threads`, resolver filters, and `recursive_name_servers` if needed.
 - Task `.conf` files: adjust `data_dir`, worker counts, fetch windows, URLs, and source mappings only if your deployment differs from the defaults.
 - `db/data-sources.conf`: update source metadata only when adding or changing data sources.
@@ -215,6 +218,61 @@ Resolver lists can be exported from the database:
 ```bash
 python -m measurements.scripts.get_resolvers --verified true --is-public true --country DE --format txt
 ```
+
+### IPv6 measurements through the host network
+
+On Linux hosts where the usable global IPv6 address exists only on a special host interface, use
+the opt-in `zdns-host` Compose service. It uses host networking and connects back to the project's
+PostgreSQL container through `127.0.0.1`. PostgreSQL is published on loopback only, using
+`POSTGRES_PORT` from `.env`.
+
+First create the runtime config and set the source address:
+
+```bash
+cp measurements/zdns.conf.example measurements/zdns.conf
+editor measurements/zdns.conf
+```
+
+For example:
+
+```ini
+[zdns]
+path = measurements/tools/zdns/zdns
+ipv4_local_addr =
+ipv6_local_addr = 2001:db8::1234
+threads = 10000
+network_timeout = 2
+retries = 1
+no_recycle_sockets = true
+```
+
+Start PostgreSQL and build the one-shot measurement image:
+
+```bash
+docker compose up -d postgres
+docker compose --profile tools build zdns-host
+```
+
+Run AAAA verification. The command loads IPv6 targets directly from `resolver`, writes the generated
+target file below `data/measurements/verify_ipv6_resolvers/`, runs ZDNS over the configured source
+address, and imports matching self-answering resolvers as successful verifications:
+
+```bash
+sudo docker compose --profile tools run --rm --no-deps -T zdns-host \
+  verify
+```
+
+Run DNSSEC validation over IPv6. It performs the same database export and imports validating,
+non-validating, and unknown observations into the DNSSEC history tables:
+
+```bash
+sudo docker compose --profile tools run --rm --no-deps -T zdns-host \
+  dnssec
+```
+
+Run both sequentially by replacing the final argument with `all`. ZDNS progress and importer logs
+are streamed to the invoking terminal. Resolver filters remain configurable in the two task-specific
+configuration files.
 
 The first measurement task verifies resolvers by running a ZDNS `A` lookup for the configured domain through each resolver:
 

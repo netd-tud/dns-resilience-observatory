@@ -1,0 +1,14 @@
+[zdns]
+# ZDNS binary inside Dockerfile.measurements images.
+path = measurements/tools/zdns/zdns
+
+# Optional source addresses used for outgoing scans. Set ipv6_local_addr to the
+# global address assigned to the host's measurement interface.
+ipv4_local_addr =
+ipv6_local_addr =
+
+# Shared scan settings used by the IPv6 verification and DNSSEC tasks.
+threads = 10000
+network_timeout = 2
+retries = 1
+no_recycle_sockets = true

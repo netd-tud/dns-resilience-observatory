@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import datetime as dt
 import ipaddress
 import subprocess
 import time
@@ -12,7 +13,9 @@ from loguru import logger
 
 from data_gathering.task_lock import advisory_task_lock
 from measurements.celery_app import app
+from measurements.db import connect
 from measurements.scripts.get_resolvers import query_resolvers
+from measurements.zdns_config import build_zdns_command
 
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -20,6 +23,7 @@ CONFIG_FILE = Path(__file__).with_suffix(".conf")
 EXAMPLE_CONFIG_FILE = Path(__file__).with_suffix(".conf.example")
 DEFAULT_DOMAIN = "rr-mirror.research6.nawrocki.berlin"
 CANDIDATE_TASK_NAME = "measurements.tasks.verify_ipv6_resolvers.import_candidates"
+DEFAULT_VERIFICATION_SOURCE = "measurements.zdns.ipv6-verification"
 
 
 def _optional_bool(value: str | None) -> bool | None:
@@ -70,6 +74,98 @@ def _ipv6_nameserver_ips(rows: list[dict[str, object]]) -> tuple[list[str], int,
     return resolver_ips, skipped_non_global, skipped_non_ipv6
 
 
+def _import_existing_resolver_results(
+    output_path: Path,
+    resolver_ips: list[str],
+    *,
+    verifying_source: str,
+) -> dict[str, int]:
+    """Record attempted targets and matching, self-answering IPv6 resolvers."""
+
+    from data_gathering.imports.resolver.import_resolvers import read_zdns_noerror_rows
+
+    _, accepted_rows, invalid_count = read_zdns_noerror_rows(
+        output_path,
+        module="AAAA",
+        source=verifying_source,
+        verified=True,
+        is_public=True,
+    )
+    successful = {str(row["ip"]): row["last_update_ts"] for row in accepted_rows}
+    measured_at = dt.datetime.now(dt.timezone.utc)
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TEMP TABLE ipv6_verification_stage (
+                    ip INET PRIMARY KEY,
+                    successful BOOLEAN NOT NULL,
+                    observed_at TIMESTAMPTZ NOT NULL
+                ) ON COMMIT DROP
+                """
+            )
+            with cursor.copy(
+                "COPY ipv6_verification_stage (ip, successful, observed_at) FROM STDIN"
+            ) as copy:
+                for resolver_ip in resolver_ips:
+                    copy.write_row(
+                        (
+                            resolver_ip,
+                            resolver_ip in successful,
+                            successful.get(resolver_ip) or measured_at,
+                        )
+                    )
+
+            cursor.execute(
+                """
+                UPDATE resolver_id ri
+                SET total_measurements = ri.total_measurements + 1,
+                    seen_measurements = ri.seen_measurements + stage.successful::INTEGER,
+                    verified = ri.verified OR stage.successful,
+                    last_update_ts = CASE
+                        WHEN stage.successful
+                        THEN GREATEST(ri.last_update_ts, stage.observed_at)
+                        ELSE ri.last_update_ts
+                    END
+                FROM resolver r
+                JOIN ipv6_verification_stage stage ON stage.ip = r.ip
+                WHERE ri.id = r.resolver_id
+                """
+            )
+            measured_count = cursor.rowcount
+            cursor.execute(
+                """
+                UPDATE resolver r
+                SET last_update_ts = GREATEST(r.last_update_ts, stage.observed_at)
+                FROM ipv6_verification_stage stage
+                WHERE r.ip = stage.ip
+                  AND stage.successful
+                """
+            )
+            successful_count = cursor.rowcount
+            cursor.execute(
+                """
+                INSERT INTO resolver_verification (resolver_id, verifying_source)
+                SELECT r.resolver_id, %s
+                FROM resolver r
+                JOIN ipv6_verification_stage stage ON stage.ip = r.ip
+                WHERE stage.successful
+                ON CONFLICT DO NOTHING
+                """,
+                (verifying_source,),
+            )
+            verification_insert_count = cursor.rowcount
+
+    return {
+        "measured": measured_count,
+        "successful": successful_count,
+        "failed_or_unknown": measured_count - successful_count,
+        "verification_inserts": verification_insert_count,
+        "invalid_output_rows": invalid_count,
+    }
+
+
 def run_verify_ipv6_candidate_file(
     input_path: Path,
     output_path: Path,
@@ -85,25 +181,18 @@ def run_verify_ipv6_candidate_file(
     started = time.monotonic()
     config = load_config(config_path)
     domain = config.get("domain", DEFAULT_DOMAIN).strip() or DEFAULT_DOMAIN
-    zdns_path = _resolve_path(config.get("zdns_path", "measurements/tools/zdns/zdns"))
     if not input_path.is_file():
         raise FileNotFoundError(f"Missing IPv6 resolver candidate file: {input_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    command = [
-        str(zdns_path),
+    command, _ = build_zdns_command(
         "AAAA",
-        "--name-server-mode",
-        "--6",
-        f"--override-name={domain}",
-        f"--input-file={input_path}",
-        f"--output-file={output_path}",
-        f"--threads={config.get('threads', '100')}",
-        f"--network-timeout={config.get('network_timeout', '8')}",
-        f"--retries={config.get('retries', '1')}",
-    ]
-    if _optional_bool(config.get("no_recycle_sockets", "true")):
-        command.append("--no-recycle-sockets")
+        domain=domain,
+        input_path=input_path,
+        output_path=output_path,
+        ip_version=6,
+        task_config=config,
+    )
 
     logger.info("Running IPv6 candidate ZDNS command: {command}", command=" ".join(command))
     process = subprocess.Popen(
@@ -157,18 +246,30 @@ def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, obje
     input_path = output_dir / config.get("input_file", "ipv6_resolvers.txt")
     output_path = output_dir / config.get("output_file", "verify_ipv6_resolvers.jsonl")
     domain = config.get("domain", DEFAULT_DOMAIN).strip() or DEFAULT_DOMAIN
-    zdns_path = _resolve_path(config.get("zdns_path", "measurements/tools/zdns/zdns"))
+    verification_source = (
+        config.get("verification_source", DEFAULT_VERIFICATION_SOURCE).strip()
+        or DEFAULT_VERIFICATION_SOURCE
+    )
+    command, zdns_settings = build_zdns_command(
+        "AAAA",
+        domain=domain,
+        input_path=input_path,
+        output_path=output_path,
+        ip_version=6,
+        task_config=config,
+    )
 
     logger.info(
         "IPv6 resolver verification settings: domain={domain}, record_type=AAAA, transport=IPv6, "
-        "zdns_path={zdns_path}, output_dir={output_dir}, threads={threads}, "
-        "timeout={timeout}, retries={retries}",
+        "local_addr={local_addr}, zdns_path={zdns_path}, output_dir={output_dir}, "
+        "threads={threads}, timeout={timeout}, retries={retries}",
         domain=domain,
-        zdns_path=zdns_path,
+        local_addr=zdns_settings["local_addr"] or "automatic",
+        zdns_path=zdns_settings["path"],
         output_dir=output_dir,
-        threads=config.get("threads", "100"),
-        timeout=config.get("network_timeout", "8"),
-        retries=config.get("retries", "1"),
+        threads=zdns_settings["threads"],
+        timeout=zdns_settings["network_timeout"],
+        retries=zdns_settings["retries"],
     )
 
     rows = query_resolvers(
@@ -194,21 +295,6 @@ def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, obje
         logger.info("First IPv6 resolver IPs: {sample}", sample=", ".join(resolver_ips[:5]))
     else:
         logger.warning("No global IPv6 resolver IPs matched the configured filters")
-
-    command = [
-        str(zdns_path),
-        "AAAA",
-        "--name-server-mode",
-        "--6",
-        f"--override-name={domain}",
-        f"--input-file={input_path}",
-        f"--output-file={output_path}",
-        f"--threads={config.get('threads', '100')}",
-        f"--network-timeout={config.get('network_timeout', '8')}",
-        f"--retries={config.get('retries', '1')}",
-    ]
-    if _optional_bool(config.get("no_recycle_sockets", "true")):
-        command.append("--no-recycle-sockets")
 
     logger.info("Running ZDNS command: {command}", command=" ".join(command))
     process = subprocess.Popen(
@@ -239,12 +325,18 @@ def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, obje
     if output_path.exists():
         with output_path.open("r", encoding="utf-8") as handle:
             output_lines = sum(1 for _ in handle)
+    import_report = _import_existing_resolver_results(
+        output_path,
+        resolver_ips,
+        verifying_source=verification_source,
+    )
     logger.info(
         "Finished verify_ipv6_resolvers task in {elapsed:.1f}s; output_file={output_file}; "
-        "output_rows={output_rows}",
+        "output_rows={output_rows}; import={import_report}",
         elapsed=elapsed,
         output_file=output_path,
         output_rows=output_lines,
+        import_report=import_report,
     )
 
     return {
@@ -257,6 +349,7 @@ def run_verify_ipv6_resolvers(config_path: Path = CONFIG_FILE) -> dict[str, obje
         "input_file": str(input_path),
         "output_file": str(output_path),
         "output_rows": output_lines,
+        "import": import_report,
         "elapsed_seconds": round(elapsed, 3),
     }
 

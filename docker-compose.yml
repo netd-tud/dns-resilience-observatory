@@ -9,6 +9,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./db/postgresdb_vol:/var/lib/postgresql
+    ports:
+      # The host-network ZDNS runner reaches PostgreSQL through host loopback.
+      # Binding to 127.0.0.1 keeps the database unavailable from other hosts.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     shm_size: "1gb"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -172,6 +176,42 @@ services:
     networks:
       - api_db_network
       - worker_broker_network
+
+  zdns-host:
+    # Opt-in one-shot runner for hosts whose measurement IPv6 address/interface
+    # is unavailable inside a Docker bridge network.
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile.measurements
+    network_mode: host
+    entrypoint: ["python", "-m", "measurements.scripts.run_ipv6_measurements"]
+    command: ["all"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - type: bind
+        source: ./measurements/zdns.conf
+        target: /app/measurements/zdns.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      RUN_STARTUP_TASKS: "false"
+      RUN_APPLY_SCHEMA: "false"
+      RUN_MIGRATIONS: "false"
+      RUN_CREATE_SUPERUSER: "false"
+      DATABASE_URL: ""
+      DATABASE_ENGINE: postgresql
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: ${POSTGRES_PORT:-5432}
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:

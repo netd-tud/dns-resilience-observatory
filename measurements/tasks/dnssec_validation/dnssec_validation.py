@@ -20,6 +20,7 @@ from loguru import logger
 from measurements.celery_app import app
 from measurements.db import connect
 from measurements.scripts.get_resolvers import query_resolvers
+from measurements.zdns_config import build_zdns_command
 
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -461,6 +462,7 @@ def run_dnssec_validation(
     config_path: Path = CONFIG_FILE,
     *,
     run_key: str | None = None,
+    ip_version: int | None = None,
 ) -> dict[str, object]:
     monotonic_start = time.monotonic()
     started_at = dt.datetime.now(dt.timezone.utc)
@@ -472,10 +474,14 @@ def run_dnssec_validation(
     output_dir.mkdir(parents=True, exist_ok=True)
     input_path = output_dir / config.get("input_file", "resolvers.txt")
     output_path = output_dir / config.get("output_file", "dnssec_validation.csv")
+    target_ip_version = ip_version or _optional_int(config.get("ip_version")) or 4
+    if target_ip_version not in {4, 6}:
+        raise ValueError("dnssec_validation ip_version must be 4 or 6")
 
     rows = query_resolvers(
         verified=_optional_bool(config.get("verified")),
         is_public=_optional_bool(config.get("is_public")),
+        ip_version=target_ip_version,
         source=config.get("resolver_source") or None,
         country=config.get("country") or None,
         asn=_optional_int(config.get("asn")),
@@ -513,19 +519,23 @@ def run_dnssec_validation(
                 delete=False,
             ) as raw_handle:
                 raw_output_path = Path(raw_handle.name)
-            command = [
-                str(_resolve_path(config.get("zdns_path", "measurements/tools/zdns/zdns"))),
+            command, zdns_settings = build_zdns_command(
                 "A",
-                "--name-server-mode",
-                f"--override-name={domain}",
-                f"--input-file={input_path}",
-                f"--output-file={raw_output_path}",
-                f"--threads={config.get('threads', '100')}",
-                f"--network-timeout={config.get('network_timeout', '8')}",
-                f"--retries={config.get('retries', '1')}",
-            ]
-            if _optional_bool(config.get("no_recycle_sockets", "true")):
-                command.append("--no-recycle-sockets")
+                domain=domain,
+                input_path=input_path,
+                output_path=raw_output_path,
+                ip_version=target_ip_version,
+                task_config=config,
+            )
+            logger.info(
+                "DNSSEC ZDNS settings: ip_version={ip_version}, local_addr={local_addr}, "
+                "threads={threads}, timeout={timeout}, retries={retries}",
+                ip_version=target_ip_version,
+                local_addr=zdns_settings["local_addr"] or "automatic",
+                threads=zdns_settings["threads"],
+                timeout=zdns_settings["network_timeout"],
+                retries=zdns_settings["retries"],
+            )
             _run_zdns(command)
             observations = parse_zdns_results(
                 raw_output_path,
@@ -557,6 +567,7 @@ def run_dnssec_validation(
         "run_id": run_id,
         "run_key": run_key,
         "resolver_count": len(resolver_ips),
+        "ip_version": target_ip_version,
         "skipped_non_global_resolvers": skipped_resolvers,
         "validating_count": validating_count,
         "non_validating_count": non_validating_count,
