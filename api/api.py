@@ -493,6 +493,15 @@ def get_country_resolver_usage_apnic(request, country: str):
     return dns_resilience_service.get_resolver_usage_apnic(country)
 
 
+@api.get(
+    "/dns-resilience/country/{country}/forwarder-resolver-usage",
+    summary="Get forwarder-centric upstream recursive DNS resolver usage for a country",
+)
+def get_country_forwarder_resolver_usage(request, country: str):
+    logger.info("Country forwarder-centric resolver usage request for country: %s", country)
+    return dns_resilience_service.get_country_forwarder_resolver_usage(country)
+
+
 @api.get("/dns-resilience/global/ipv4", summary="Get global IPv4 resolver summary")
 def get_global_ipv4(request):
     logger.info("Global IPv4 resolver summary request")

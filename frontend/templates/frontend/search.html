@@ -288,41 +288,250 @@
             return gauge("MANRS Compliance Score", payload.average_readiness_pc, detail);
         }
 
-        const apnicResolverUsageLabels = {
-            sameas: "Same AS",
-            samecc: "Same country",
+        const apnicResolverProviderLabels = {
             googlepdns: "Google Public DNS",
             cloudflare: "Cloudflare",
-            diffcc: "Different country",
+            cnnic: "CNNIC",
             onedns: "One DNS",
             dnspai: "DNS PAI",
+            dnspod: "DNSPod",
+            dnswatch: "DNS.WATCH",
+            dyn: "Dyn",
+            freedns: "FreeDNS",
+            greenteamdns: "GreenTeamDNS",
+            he: "Hurricane Electric",
+            level3: "Level 3",
+            neustar: "Neustar",
             opendns: "OpenDNS",
+            opennic: "OpenNIC",
             quad9: "Quad9",
+            uncensoreddns: "UncensoredDNS",
+            vrsgn: "Verisign",
+            yandex: "Yandex",
+            comodo: "Comodo",
+            safedns: "SafeDNS",
+            freenom: "Freenom",
+            cleanbrowsing: "CleanBrowsing",
+            alternatedns: "Alternate DNS",
+            puntcat: "PuntCAT",
+            alidns: "AliDNS",
+            baidu: "Baidu",
             "114dns": "114 DNS",
+            quad101: "Quad101",
+            adguard: "AdGuard",
+            canadian_shield: "Canadian Shield",
+            skydns: "SkyDNS",
+            cznic: "CZ.NIC",
+            dns4eu: "DNS4EU",
         };
 
-        function apnicResolverUsageHtml(payload) {
-            if (!payload?.available) {
-                return `<div class="empty">No APNIC resolver-usage observation is available for this economy.</div>`;
-            }
-            const observation = payload.observation_date || "Unknown date";
-            const sampleCount = formatNumber(payload.sample_count || 0);
+        function escapeResolverUsageHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        function formatResolverUsageOrganization(value) {
+            const organization = String(value || "Unknown").trim() || "Unknown";
+            const firstToken = organization.match(/^[A-Za-z0-9]+/)?.[0] || organization;
+            const aliases = {
+                GOOGLE: "Google",
+                CLOUDFLARENET: "Cloudflare",
+                QUAD9: "Quad9",
+            };
+            return aliases[firstToken.toUpperCase()] || firstToken;
+        }
+
+        function formatResolverUsagePercent(value) {
+            const numericValue = Number(value || 0);
+            return numericValue > 0 && numericValue < 0.1
+                ? "&lt;0.1%"
+                : formatPercent(numericValue);
+        }
+
+        function resolverUsageGaugeHtml(entry) {
+            const value = Math.max(0, Math.min(100, Number(entry.value || 0)));
+            const count = entry.count === null || entry.count === undefined
+                ? ""
+                : `; ${formatNumber(entry.count)}${entry.total === null || entry.total === undefined ? "" : ` of ${formatNumber(entry.total)}`}`;
+            const formattedPercent = formatResolverUsagePercent(value);
+            const title = `${entry.label}: ${formattedPercent.replace("&lt;", "<")}${count}`;
+            const label = entry.search
+                ? `<a class="resolver-gauge-label-link" href="/search.html?q=${encodeURIComponent(entry.search)}" title="${escapeResolverUsageHtml(entry.fullLabel || entry.label)}">${escapeResolverUsageHtml(entry.label)}</a>`
+                : escapeResolverUsageHtml(entry.label);
             return `
-                <div class="section-header">
-                    <div>
-                        <h2>APNIC Recursive DNS Resolver Usage</h2>
-                        <p>First-resolver observation for ${payload.country_code}, ${observation}; ${sampleCount} observations.</p>
+                <div class="resolver-gauge-item">
+                    <div class="resolver-speedometer" style="--value: ${value}" role="img" aria-label="${escapeResolverUsageHtml(title)}" title="${escapeResolverUsageHtml(title)}">
+                        <div class="resolver-speedometer-arc"></div>
+                        <strong>${formattedPercent}</strong>
                     </div>
-                </div>
-                <div class="metric-grid">
-                    ${Object.entries(apnicResolverUsageLabels).map(([metric, label]) => {
-                        const value = payload.metrics?.[metric];
-                        return value === null || value === undefined
-                            ? `<div class="gauge-card"><div class="metric-label">${label}</div><div class="metric-subvalue">No measurement</div></div>`
-                            : gauge(label, value, "Share of APNIC observations");
-                    }).join("")}
+                    <p>${label}</p>
                 </div>
             `;
+        }
+
+        function resolverUsageGaugeListHtml(entries) {
+            return entries.length
+                ? entries.map(resolverUsageGaugeHtml).join("")
+                : `<div class="empty">No measurements are available.</div>`;
+        }
+
+        function resolverUsageLoadingHtml(count) {
+            return Array.from({ length: count }, () => `
+                <div class="resolver-gauge-item">
+                    <div class="resolver-speedometer is-loading" style="--value: 0" role="img" aria-label="Loading resolver usage">
+                        <div class="resolver-speedometer-arc"></div><strong>…</strong>
+                    </div>
+                    <p>Loading…</p>
+                </div>
+            `).join("");
+        }
+
+        function countryResolverUsageComparisonHtml(target) {
+            const safeTarget = escapeResolverUsageHtml(target);
+            return `
+                <div class="dashboard-section resolver-usage-search-comparison" id="country-resolver-usage-comparison">
+                    <div class="section-header resolver-usage-comparison-heading">
+                        <div>
+                            <h2>User- and Forwarder-Centric Recursive DNS Resolver Usage</h2>
+                            <p>Compare APNIC user observations with the direct upstream recursive DNS resolvers used by forwarders in ${safeTarget}.</p>
+                        </div>
+                    </div>
+                    <div class="resolver-usage-columns">
+                        <section class="resolver-usage-column" id="country-apnic-resolver-usage">
+                            <div class="resolver-usage-column-heading">
+                                <span>User-Centric View</span>
+                                <h3>APNIC ${safeTarget}</h3>
+                                <p id="country-apnic-observation-meta">Loading the latest observation…</p>
+                            </div>
+                            <div class="resolver-usage-gauge-list" id="country-apnic-core-gauges">${resolverUsageLoadingHtml(2)}</div>
+                            <div class="resolver-usage-companies" id="country-apnic-top-companies" hidden>
+                                <h4>Top 5 Companies</h4>
+                                <div class="resolver-usage-gauge-list" id="country-apnic-company-gauges">${resolverUsageLoadingHtml(5)}</div>
+                            </div>
+                        </section>
+                        <section class="resolver-usage-column" data-country-forwarder-scope="recursive">
+                            <div class="resolver-usage-column-heading">
+                                <span>Forwarder-Centric View</span>
+                                <h3>Recursive Forwarders <small data-country-forwarder-count>(Loading…)</small></h3>
+                                <p data-country-forwarder-coverage>Loading upstream resolver coverage…</p>
+                            </div>
+                            <div class="resolver-usage-gauge-list" data-country-forwarder-core-gauges>${resolverUsageLoadingHtml(2)}</div>
+                            <div class="resolver-usage-companies" id="country-recursive-forwarder-top-companies" hidden>
+                                <h4>Top 5 Companies</h4>
+                                <div class="resolver-usage-gauge-list" data-country-forwarder-company-gauges>${resolverUsageLoadingHtml(5)}</div>
+                            </div>
+                        </section>
+                        <section class="resolver-usage-column" data-country-forwarder-scope="transparent">
+                            <div class="resolver-usage-column-heading">
+                                <span>Forwarder-Centric View</span>
+                                <h3>Transparent Forwarders <small data-country-forwarder-count>(Loading…)</small></h3>
+                                <p data-country-forwarder-coverage>Loading upstream resolver coverage…</p>
+                            </div>
+                            <div class="resolver-usage-gauge-list" data-country-forwarder-core-gauges>${resolverUsageLoadingHtml(2)}</div>
+                            <div class="resolver-usage-companies" id="country-transparent-forwarder-top-companies" hidden>
+                                <h4>Top 5 Companies</h4>
+                                <div class="resolver-usage-gauge-list" data-country-forwarder-company-gauges>${resolverUsageLoadingHtml(5)}</div>
+                            </div>
+                        </section>
+                    </div>
+                    <button
+                        class="resolver-usage-companies-toggle"
+                        id="country-resolver-usage-companies-toggle"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="country-apnic-top-companies country-recursive-forwarder-top-companies country-transparent-forwarder-top-companies"
+                    >
+                        <span aria-hidden="true">+</span>
+                        <span>Show Top 5 Companies</span>
+                    </button>
+                </div>
+            `;
+        }
+
+        function setupCountryResolverUsageToggle() {
+            const button = document.getElementById("country-resolver-usage-companies-toggle");
+            const card = document.getElementById("country-resolver-usage-comparison");
+            if (!button || !card) {
+                return;
+            }
+            button.addEventListener("click", () => {
+                const expanded = button.getAttribute("aria-expanded") === "true";
+                button.setAttribute("aria-expanded", String(!expanded));
+                card.querySelectorAll(".resolver-usage-companies").forEach((panel) => {
+                    panel.hidden = expanded;
+                });
+                button.lastElementChild.textContent = expanded ? "Show Top 5 Companies" : "Hide Top 5 Companies";
+            });
+        }
+
+        function renderCountryApnicResolverUsage(payload) {
+            const meta = document.getElementById("country-apnic-observation-meta");
+            const core = document.getElementById("country-apnic-core-gauges");
+            const companies = document.getElementById("country-apnic-company-gauges");
+            if (!payload?.available) {
+                meta.textContent = "No APNIC resolver-usage observation is available for this economy.";
+                core.innerHTML = `<div class="empty">No measurements are available.</div>`;
+                companies.innerHTML = `<div class="empty">No company measurements are available.</div>`;
+                return;
+            }
+            const total = Number(payload.sample_count || 0);
+            const providers = Object.entries(apnicResolverProviderLabels)
+                .map(([metric, label]) => ({
+                    label,
+                    value: Number(payload.metrics?.[metric]),
+                    count: payload.counts?.[metric],
+                    total,
+                }))
+                .filter((entry) => Number.isFinite(entry.value))
+                .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+                .slice(0, 5);
+            core.innerHTML = resolverUsageGaugeListHtml([
+                { label: "Same AS", value: payload.metrics?.sameas, count: payload.counts?.sameas, total },
+                { label: "Same Country", value: payload.metrics?.samecc, count: payload.counts?.samecc, total },
+            ]);
+            companies.innerHTML = resolverUsageGaugeListHtml(providers);
+            meta.textContent = `${payload.observation_date || "Unknown date"} · ${formatNumber(total)} observations · First resolver`;
+        }
+
+        function renderCountryForwarderResolverUsage(payload) {
+            ["recursive", "transparent"].forEach((scope) => {
+                const section = document.querySelector(`[data-country-forwarder-scope="${scope}"]`);
+                const data = payload?.scopes?.[scope];
+                if (!section) {
+                    return;
+                }
+                if (!data) {
+                    section.querySelector("[data-country-forwarder-count]").textContent = "(0)";
+                    section.querySelector("[data-country-forwarder-coverage]").textContent = "No forwarders of this type are recorded for this economy.";
+                    section.querySelector("[data-country-forwarder-core-gauges]").innerHTML = `<div class="empty">No measurements are available.</div>`;
+                    section.querySelector("[data-country-forwarder-company-gauges]").innerHTML = `<div class="empty">No company measurements are available.</div>`;
+                    return;
+                }
+                const total = Number(data.forwarder_count || 0);
+                const linked = Number(data.linked_forwarder_count || 0);
+                section.querySelector("[data-country-forwarder-count]").textContent = `(${formatNumber(total)})`;
+                section.querySelector("[data-country-forwarder-coverage]").textContent =
+                    `${formatNumber(linked)} have a direct recursive DNS resolver upstream; ` +
+                    `AS metadata is comparable for ${formatNumber(data.asn_comparable_count)} and country metadata for ${formatNumber(data.country_comparable_count)}.`;
+                section.querySelector("[data-country-forwarder-core-gauges]").innerHTML = resolverUsageGaugeListHtml([
+                    { label: "Same AS", value: data.same_as_pc, count: data.same_as_count, total },
+                    { label: "Same Country", value: data.same_country_pc, count: data.same_country_count, total },
+                ]);
+                section.querySelector("[data-country-forwarder-company-gauges]").innerHTML = resolverUsageGaugeListHtml(
+                    (data.top_resolver_organizations || []).map((organization) => ({
+                        label: formatResolverUsageOrganization(organization.organization),
+                        fullLabel: organization.organization,
+                        value: organization.percent,
+                        count: organization.forwarder_count,
+                        total,
+                        search: `org:${organization.organization}`,
+                    })),
+                );
+            });
         }
 
         function ratioBar(label, firstLabel, firstValue, secondLabel, secondValue) {
@@ -816,14 +1025,18 @@
                     </div>
                     <div id="scoped-resolver-prefixes">${loadingText()}</div>
                 </div>
-                ${isCountry ? `<div class="dashboard-section" id="scoped-apnic-resolver-usage">${loadingText()}</div>` : ""}
+                ${isCountry ? countryResolverUsageComparisonHtml(payload.target) : ""}
             `;
+
+            if (isCountry) {
+                setupCountryResolverUsageToggle();
+            }
 
             loadPrefixPage("scoped-resolver-prefixes", `${targetPath}/prefixes`, 1);
 
             let completed = 0;
             let failed = 0;
-            const total = isCountry ? 6 : 4;
+            const total = isCountry ? 7 : 4;
             const markDone = () => {
                 completed += 1;
                 if (completed === total) {
@@ -897,8 +1110,29 @@
                     .finally(markDone);
 
                 fetchApiPath(`${targetPath}/resolver-usage-apnic`)
-                    .then((usage) => setHtml("scoped-apnic-resolver-usage", apnicResolverUsageHtml(usage)))
-                    .catch(() => { failed += 1; setLoadingError("scoped-apnic-resolver-usage"); })
+                    .then(renderCountryApnicResolverUsage)
+                    .catch(() => {
+                        failed += 1;
+                        const meta = document.getElementById("country-apnic-observation-meta");
+                        if (meta) {
+                            meta.textContent = "Failed to load APNIC resolver usage.";
+                        }
+                        setHtml("country-apnic-core-gauges", `<div class="empty">Failed to load.</div>`);
+                        setHtml("country-apnic-company-gauges", `<div class="empty">Failed to load.</div>`);
+                    })
+                    .finally(markDone);
+
+                fetchApiPath(`${targetPath}/forwarder-resolver-usage`)
+                    .then(renderCountryForwarderResolverUsage)
+                    .catch(() => {
+                        failed += 1;
+                        document.querySelectorAll("[data-country-forwarder-coverage]").forEach((element) => {
+                            element.textContent = "Failed to load forwarder-centric resolver usage.";
+                        });
+                        document.querySelectorAll("[data-country-forwarder-core-gauges], [data-country-forwarder-company-gauges]").forEach((element) => {
+                            element.innerHTML = `<div class="empty">Failed to load.</div>`;
+                        });
+                    })
                     .finally(markDone);
             }
         }

@@ -362,13 +362,39 @@ class DNSResilienceService:
 
     @cached(ttl=900)
     def get_global_forwarder_resolver_usage(self) -> dict:
+        return self._get_forwarder_resolver_usage()
+
+    @cached(ttl=900)
+    def get_country_forwarder_resolver_usage(self, country: str) -> dict:
+        normalized = self.validate_country_code(country)
+        return self._get_forwarder_resolver_usage(normalized)
+
+    def _get_forwarder_resolver_usage(self, country: str | None = None) -> dict:
+        total_location_join = ""
+        total_country_filter = ""
+        match_country_filter = ""
+        organization_location_join = ""
+        organization_country_filter = ""
+        summary_params: list[str] = []
+        organization_params: list[str] = []
+        if country is not None:
+            total_location_join = "JOIN forwarder_location scope_location ON scope_location.forwarder_id = f.forwarder_id"
+            total_country_filter = "AND scope_location.country = %s"
+            match_country_filter = "AND fl.country = %s"
+            organization_location_join = "JOIN forwarder_location scope_location ON scope_location.forwarder_id = f.forwarder_id"
+            organization_country_filter = "AND scope_location.country = %s"
+            summary_params = [country, country]
+            organization_params = [country]
+
         summary_rows = self._fetchall(
-            """
+            f"""
             WITH typed_totals AS (
-                SELECT type, COUNT(*)::BIGINT AS forwarder_count
-                FROM forwarder
-                WHERE type IN ('recursive', 'transparent')
-                GROUP BY type
+                SELECT f.type, COUNT(DISTINCT f.forwarder_id)::BIGINT AS forwarder_count
+                FROM forwarder f
+                {total_location_join}
+                WHERE f.type IN ('recursive', 'transparent')
+                  {total_country_filter}
+                GROUP BY f.type
             ),
             upstream_matches AS (
                 SELECT
@@ -393,6 +419,7 @@ class DNSResilienceService:
                 LEFT JOIN forwarder_location fl ON fl.forwarder_id = f.forwarder_id
                 LEFT JOIN resolver_location rl ON rl.resolver_id = fru.upstream_resolver_id
                 WHERE f.type IN ('recursive', 'transparent')
+                  {match_country_filter}
                 GROUP BY f.type
             )
             SELECT
@@ -406,10 +433,11 @@ class DNSResilienceService:
             FROM typed_totals totals
             LEFT JOIN upstream_matches matches USING (type)
             ORDER BY totals.type
-            """
+            """,
+            summary_params,
         )
         organization_rows = self._fetchall(
-            """
+            f"""
             WITH organization_usage AS (
                 SELECT
                     f.type,
@@ -417,9 +445,11 @@ class DNSResilienceService:
                     COUNT(DISTINCT fru.forwarder_id)::BIGINT AS forwarder_count
                 FROM forwarder_resolver_upstream fru
                 JOIN forwarder f ON f.forwarder_id = fru.forwarder_id
+                {organization_location_join}
                 JOIN resolver_org ro ON ro.resolver_id = fru.upstream_resolver_id
                 WHERE f.type IN ('recursive', 'transparent')
                   AND NULLIF(BTRIM(ro.org), '') IS NOT NULL
+                  {organization_country_filter}
                 GROUP BY f.type, BTRIM(ro.org)
             ),
             ranked AS (
@@ -437,7 +467,8 @@ class DNSResilienceService:
             FROM ranked
             WHERE rank <= 5
             ORDER BY type, rank
-            """
+            """,
+            organization_params,
         )
 
         organizations_by_type: dict[str, list[dict]] = {
@@ -482,8 +513,14 @@ class DNSResilienceService:
 
         return {
             "available": bool(scopes),
+            "target": country or "World",
+            "country": country,
             "source_relation": "forwarder_resolver_upstream",
-            "percentage_denominator": "all_forwarders_of_type",
+            "percentage_denominator": (
+                "all_forwarders_of_type_in_country"
+                if country is not None
+                else "all_forwarders_of_type"
+            ),
             "scopes": scopes,
         }
 
