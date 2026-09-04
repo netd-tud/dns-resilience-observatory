@@ -152,9 +152,11 @@
                             <p class="home-eyebrow home-eyebrow-dark">Observed Resolver Usage</p>
                             <h2>User- and Forwarder-Centric Recursive DNS Resolver Usage</h2>
                             <p class="resolver-hero-description">
-                                Compare the APNIC Labs world-level first-resolver measurement with recursive DNS
-                                resolver upstreams configured by recursive and transparent forwarders. The forwarder
-                                view uses only direct <code>forwarder_resolver_upstream</code> relationships.
+                                We compare the APNIC Labs world-level first-resolver measurements (user-centric) with recursive DNS
+                                resolver upstreams (forwarder-centric).
+                                The user-centric view shows the resolvers used by end users, while the forwarder-centric view shows the resolvers used by recursive and transparent DNS forwarders.
+                                Same AS and same country for the user-centric view means that the end user and its first resolver are in the same autonomous system or country, respectively.
+                                Same AS and same country for the forwarder-centric view means that the forwarder and its upstream resolver are in the same autonomous system or country, respectively.
                             </p>
                         </header>
                         <div class="resolver-usage-columns">
