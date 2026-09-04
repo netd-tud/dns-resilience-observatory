@@ -289,6 +289,205 @@ class DNSResilienceService:
         }
 
     @cached()
+    def get_resolver_usage_apnic(self, country: str) -> dict:
+        requested = (country or "").strip().upper()
+        if requested == "XA":
+            country_code = "XA"
+            target = "World"
+        else:
+            normalized = self.validate_country_code(requested)
+            country_entry = pycountry.countries.get(alpha_3=normalized)
+            if country_entry is None:
+                raise ValidationError(f"Country {requested!r} has no ISO alpha-2 mapping")
+            country_code = str(country_entry.alpha_2)
+            target = normalized
+
+        row = self._fetchone(
+            """
+            SELECT
+                country_code,
+                observation_date,
+                measurement_type,
+                sample_count,
+                weighted_sample_count,
+                resolver_counts,
+                resolver_percentages,
+                last_update_ts,
+                source
+            FROM resolver_usage_apnic
+            WHERE country_code = %s
+            """,
+            [country_code],
+        )
+        if not row:
+            return {
+                "available": False,
+                "target": target,
+                "country_code": country_code,
+                "observation_date": None,
+                "measurement_type": "1q",
+                "sample_count": None,
+                "weighted_sample_count": None,
+                "counts": {},
+                "metrics": {},
+                "last_update_ts": None,
+                "source": "apnic-resolver-usage",
+            }
+        resolver_percentages = row.pop("resolver_percentages") or {}
+        resolver_counts = row.pop("resolver_counts") or {}
+        if isinstance(resolver_percentages, str):
+            resolver_percentages = json.loads(resolver_percentages)
+        if isinstance(resolver_counts, str):
+            resolver_counts = json.loads(resolver_counts)
+        if not isinstance(resolver_percentages, dict):
+            resolver_percentages = {}
+        if not isinstance(resolver_counts, dict):
+            resolver_counts = {}
+
+        metrics = {
+            str(key): round(float(value), 6)
+            for key, value in resolver_percentages.items()
+        }
+        counts = {
+            str(key): int(value)
+            for key, value in resolver_counts.items()
+        }
+        return {
+            "available": True,
+            "target": target,
+            **row,
+            "counts": counts,
+            "metrics": metrics,
+        }
+
+    @cached(ttl=900)
+    def get_global_forwarder_resolver_usage(self) -> dict:
+        summary_rows = self._fetchall(
+            """
+            WITH typed_totals AS (
+                SELECT type, COUNT(*)::BIGINT AS forwarder_count
+                FROM forwarder
+                WHERE type IN ('recursive', 'transparent')
+                GROUP BY type
+            ),
+            upstream_matches AS (
+                SELECT
+                    f.type,
+                    COUNT(DISTINCT fru.forwarder_id)::BIGINT AS linked_forwarder_count,
+                    COUNT(DISTINCT fru.forwarder_id) FILTER (
+                        WHERE fa.asn IS NOT NULL AND ra.asn = fa.asn
+                    )::BIGINT AS same_as_count,
+                    COUNT(DISTINCT fru.forwarder_id) FILTER (
+                        WHERE fl.country IS NOT NULL AND rl.country = fl.country
+                    )::BIGINT AS same_country_count,
+                    COUNT(DISTINCT fru.forwarder_id) FILTER (
+                        WHERE fa.asn IS NOT NULL AND ra.asn IS NOT NULL
+                    )::BIGINT AS asn_comparable_count,
+                    COUNT(DISTINCT fru.forwarder_id) FILTER (
+                        WHERE fl.country IS NOT NULL AND rl.country IS NOT NULL
+                    )::BIGINT AS country_comparable_count
+                FROM forwarder_resolver_upstream fru
+                JOIN forwarder f ON f.forwarder_id = fru.forwarder_id
+                LEFT JOIN forwarder_asn fa ON fa.forwarder_id = f.forwarder_id
+                LEFT JOIN resolver_asn ra ON ra.resolver_id = fru.upstream_resolver_id
+                LEFT JOIN forwarder_location fl ON fl.forwarder_id = f.forwarder_id
+                LEFT JOIN resolver_location rl ON rl.resolver_id = fru.upstream_resolver_id
+                WHERE f.type IN ('recursive', 'transparent')
+                GROUP BY f.type
+            )
+            SELECT
+                totals.type,
+                totals.forwarder_count,
+                COALESCE(matches.linked_forwarder_count, 0)::BIGINT AS linked_forwarder_count,
+                COALESCE(matches.same_as_count, 0)::BIGINT AS same_as_count,
+                COALESCE(matches.same_country_count, 0)::BIGINT AS same_country_count,
+                COALESCE(matches.asn_comparable_count, 0)::BIGINT AS asn_comparable_count,
+                COALESCE(matches.country_comparable_count, 0)::BIGINT AS country_comparable_count
+            FROM typed_totals totals
+            LEFT JOIN upstream_matches matches USING (type)
+            ORDER BY totals.type
+            """
+        )
+        organization_rows = self._fetchall(
+            """
+            WITH organization_usage AS (
+                SELECT
+                    f.type,
+                    BTRIM(ro.org) AS organization,
+                    COUNT(DISTINCT fru.forwarder_id)::BIGINT AS forwarder_count
+                FROM forwarder_resolver_upstream fru
+                JOIN forwarder f ON f.forwarder_id = fru.forwarder_id
+                JOIN resolver_org ro ON ro.resolver_id = fru.upstream_resolver_id
+                WHERE f.type IN ('recursive', 'transparent')
+                  AND NULLIF(BTRIM(ro.org), '') IS NOT NULL
+                GROUP BY f.type, BTRIM(ro.org)
+            ),
+            ranked AS (
+                SELECT
+                    type,
+                    organization,
+                    forwarder_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY type
+                        ORDER BY forwarder_count DESC, organization
+                    ) AS rank
+                FROM organization_usage
+            )
+            SELECT type, organization, forwarder_count
+            FROM ranked
+            WHERE rank <= 5
+            ORDER BY type, rank
+            """
+        )
+
+        organizations_by_type: dict[str, list[dict]] = {
+            "recursive": [],
+            "transparent": [],
+        }
+        for row in organization_rows:
+            organizations_by_type.setdefault(str(row["type"]), []).append(row)
+
+        scopes: dict[str, dict] = {}
+        for row in summary_rows:
+            forwarder_type = str(row["type"])
+            total = int(row.get("forwarder_count", 0) or 0)
+
+            def percentage(count: int) -> float:
+                return round((count / total) * 100.0, 6) if total else 0.0
+
+            top_organizations = []
+            for organization in organizations_by_type.get(forwarder_type, []):
+                count = int(organization.get("forwarder_count", 0) or 0)
+                top_organizations.append(
+                    {
+                        "organization": organization.get("organization"),
+                        "forwarder_count": count,
+                        "percent": percentage(count),
+                    }
+                )
+
+            same_as_count = int(row.get("same_as_count", 0) or 0)
+            same_country_count = int(row.get("same_country_count", 0) or 0)
+            scopes[forwarder_type] = {
+                "forwarder_count": total,
+                "linked_forwarder_count": int(row.get("linked_forwarder_count", 0) or 0),
+                "asn_comparable_count": int(row.get("asn_comparable_count", 0) or 0),
+                "country_comparable_count": int(row.get("country_comparable_count", 0) or 0),
+                "same_as_count": same_as_count,
+                "same_as_pc": percentage(same_as_count),
+                "same_country_count": same_country_count,
+                "same_country_pc": percentage(same_country_count),
+                "top_resolver_organizations": top_organizations,
+            }
+
+        return {
+            "available": bool(scopes),
+            "source_relation": "forwarder_resolver_upstream",
+            "percentage_denominator": "all_forwarders_of_type",
+            "scopes": scopes,
+        }
+
+    @cached()
     def get_resolver_manrs(self, ip: str) -> dict:
         normalized = self.validate_ip_address(ip)
         resolver_asn = self._fetchone(
@@ -330,6 +529,7 @@ class DNSResilienceService:
             scope_params = [normalized_target]
             manrs = self.get_asn_manrs(str(normalized_target))
             country_dnssec = None
+            resolver_usage_apnic = None
         elif normalized_type == "country":
             normalized_target = self.validate_country_code(target)
             country = pycountry.countries.get(alpha_3=normalized_target)
@@ -343,6 +543,7 @@ class DNSResilienceService:
             scope_params = [normalized_target]
             manrs = self.get_country_manrs(normalized_target)
             country_dnssec = self.get_country_dnssec(normalized_target)
+            resolver_usage_apnic = self.get_resolver_usage_apnic(normalized_target)
         elif normalized_type in {"resolver", "ip", "resolver-ip"}:
             normalized_type = "resolver"
             normalized_target = self.validate_ip_address(target)
@@ -355,6 +556,7 @@ class DNSResilienceService:
             scope_params = [normalized_target]
             manrs = self.get_resolver_manrs(normalized_target)
             country_dnssec = None
+            resolver_usage_apnic = None
         else:
             raise ValidationError("Comparison entity type must be 'country', 'asn', or 'resolver'")
 
@@ -608,6 +810,7 @@ class DNSResilienceService:
             },
             "manrs": manrs,
             "country_dnssec": country_dnssec,
+            "resolver_usage_apnic": resolver_usage_apnic,
         }
 
     @cached()

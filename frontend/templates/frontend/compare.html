@@ -212,6 +212,19 @@
             { key: "routing_information_rpki_pc", label: "MANRS RPKI Information", description: "MANRS routing-information score based on RPKI data." },
         ];
 
+        const apnicResolverUsageMetrics = [
+            { key: "sameas", label: "Same AS", description: "First resolver is in the same AS as the user." },
+            { key: "samecc", label: "Same Country", description: "First resolver is in the same economy as the user." },
+            { key: "googlepdns", label: "Google Public DNS", description: "First resolver is identified as Google Public DNS." },
+            { key: "cloudflare", label: "Cloudflare", description: "First resolver is identified as Cloudflare." },
+            { key: "diffcc", label: "Different Country", description: "First resolver is in a different economy from the user." },
+            { key: "onedns", label: "One DNS", description: "First resolver is identified as One DNS." },
+            { key: "dnspai", label: "DNS PAI", description: "First resolver is identified as DNS PAI." },
+            { key: "opendns", label: "OpenDNS", description: "First resolver is identified as OpenDNS." },
+            { key: "quad9", label: "Quad9", description: "First resolver is identified as Quad9." },
+            { key: "114dns", label: "114 DNS", description: "First resolver is identified as 114 DNS." },
+        ];
+
         function selectedType() {
             return compareForm.elements["compare-type"].value;
         }
@@ -291,6 +304,17 @@
         }
 
         function comparisonValue(payload, definition, source) {
+            if (source === "resolver_usage_apnic") {
+                const usage = payload.resolver_usage_apnic;
+                const rawValue = usage?.metrics?.[definition.key];
+                return {
+                    available: usage?.available === true && rawValue !== null && rawValue !== undefined,
+                    value: Number(rawValue || 0),
+                    detail: usage?.observation_date
+                        ? `APNIC first-resolver observation ${usage.observation_date}`
+                        : "APNIC first-resolver observation",
+                };
+            }
             if (!payload.resolver_count) {
                 return { available: false };
             }
@@ -502,6 +526,13 @@
                         { key: "unknown", label: "Partial / unknown", color: comparisonColors.unknown },
                     ],
                 }], payloads, "apnic");
+                addMetricGroup(
+                    tableBody,
+                    "APNIC Recursive DNS Resolver Usage",
+                    apnicResolverUsageMetrics,
+                    payloads,
+                    "resolver_usage_apnic",
+                );
             }
             table.append(tableBody);
             tableWrap.append(table);

@@ -1242,6 +1242,172 @@ a {
     font-size: 0.92em;
 }
 
+.resolver-hero-description a,
+.apnic-observation-meta {
+    color: var(--body-blue);
+}
+
+.resolver-hero-description a {
+    font-weight: 700;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+.apnic-observation-meta {
+    margin: 12px 0 0;
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+}
+
+[data-apnic-resolver-usage][aria-busy="true"] .apnic-observation-meta {
+    animation: resolver-loading-pulse 1.1s ease-in-out infinite alternate;
+}
+
+.resolver-usage-comparison-heading {
+    max-width: 980px;
+}
+
+.resolver-usage-columns {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 18px;
+}
+
+.resolver-usage-column {
+    min-width: 0;
+    padding: clamp(18px, 2vw, 26px);
+    border: 1px solid #dce4ed;
+    border-top: 4px solid var(--kindns-teal);
+    border-radius: 14px;
+    background: #f8fafc;
+}
+
+.resolver-usage-column-heading {
+    min-height: 170px;
+}
+
+.resolver-usage-column-heading > span {
+    color: var(--accent-blue);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.resolver-usage-column-heading h3 {
+    margin: 8px 0 0;
+    color: var(--body-blue);
+    font-size: clamp(1.18rem, 1.7vw, 1.45rem);
+    line-height: 1.25;
+}
+
+.resolver-usage-column-heading h3 small {
+    display: block;
+    margin-top: 5px;
+    color: var(--accent-blue);
+    font-size: 0.78em;
+    font-variant-numeric: tabular-nums;
+}
+
+.resolver-usage-column-heading p {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.resolver-usage-gauge-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+}
+
+.resolver-usage-gauge-list .resolver-gauge-item {
+    padding: 10px 0 18px;
+    border-bottom: 1px solid #e1e6ef;
+}
+
+.resolver-usage-gauge-list .resolver-gauge-item:last-child {
+    border-bottom: 0;
+}
+
+.resolver-usage-companies {
+    margin-top: 20px;
+    border-top: 1px solid #dce4ed;
+}
+
+.resolver-usage-companies[hidden] {
+    display: none;
+}
+
+.resolver-usage-companies h4 {
+    margin: 0;
+    padding: 20px 2px 12px;
+    color: var(--body-blue);
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.resolver-usage-companies-toggle {
+    margin: 26px auto 0;
+    padding: 11px 18px;
+    border: 1px solid #cbd5e4;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--body-blue);
+    background: #ffffff;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 800;
+}
+
+.resolver-usage-companies-toggle > span:first-child {
+    width: 24px;
+    height: 24px;
+    border: 1px solid #b9c5d7;
+    border-radius: 50%;
+    display: inline-grid;
+    place-items: center;
+    color: var(--accent-blue);
+    transition: transform 0.2s ease;
+}
+
+.resolver-usage-companies-toggle[aria-expanded="true"] > span:first-child {
+    transform: rotate(45deg);
+}
+
+.resolver-usage-companies-toggle:hover,
+.resolver-usage-companies-toggle:focus-visible {
+    border-color: var(--accent-blue);
+    background: #f8fafc;
+}
+
+.resolver-usage-source-link {
+    margin-top: 18px;
+    display: inline-block;
+    color: var(--body-blue);
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-underline-offset: 3px;
+}
+
+.resolver-gauge-label-link {
+    color: inherit;
+    text-decoration-color: rgba(51, 73, 133, 0.38);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+.resolver-gauge-label-link:hover,
+.resolver-gauge-label-link:focus-visible {
+    color: var(--accent-blue);
+}
+
 .resolver-family-notice {
     margin: 10px 0 0;
     padding-left: 12px;
@@ -1910,6 +2076,15 @@ a {
 
     .resolver-hero-grid {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .resolver-usage-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .resolver-usage-column-heading {
+        min-height: 0;
+        margin-bottom: 24px;
     }
 
     .practice-grid {

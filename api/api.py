@@ -484,6 +484,15 @@ def get_country_dnssec(request, country: str):
     return dns_resilience_service.get_country_dnssec(country)
 
 
+@api.get(
+    "/dns-resilience/country/{country}/resolver-usage-apnic",
+    summary="Get APNIC recursive DNS resolver usage for a country",
+)
+def get_country_resolver_usage_apnic(request, country: str):
+    logger.info("APNIC resolver usage request for country: %s", country)
+    return dns_resilience_service.get_resolver_usage_apnic(country)
+
+
 @api.get("/dns-resilience/global/ipv4", summary="Get global IPv4 resolver summary")
 def get_global_ipv4(request):
     logger.info("Global IPv4 resolver summary request")
@@ -506,6 +515,24 @@ def get_global_dual_stack(request):
 def get_global_scope(request):
     logger.info("Global observatory scope summary request")
     return dns_resilience_service.get_global_scope_summary()
+
+
+@api.get(
+    "/dns-resilience/global/resolver-usage-apnic",
+    summary="Get APNIC world recursive DNS resolver usage",
+)
+def get_global_resolver_usage_apnic(request):
+    logger.info("APNIC world resolver usage request")
+    return dns_resilience_service.get_resolver_usage_apnic("XA")
+
+
+@api.get(
+    "/dns-resilience/global/forwarder-resolver-usage",
+    summary="Get forwarder-centric upstream recursive DNS resolver usage",
+)
+def get_global_forwarder_resolver_usage(request):
+    logger.info("Global forwarder-centric resolver usage request")
+    return dns_resilience_service.get_global_forwarder_resolver_usage()
 
 
 @api.get(

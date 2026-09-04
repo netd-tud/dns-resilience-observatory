@@ -376,6 +376,30 @@ STATEMENTS = [
     );
     """,
     """
+    CREATE TABLE IF NOT EXISTS resolver_usage_apnic (
+        country_code TEXT PRIMARY KEY CHECK (country_code ~ '^[A-Z]{2}$'),
+        observation_date DATE NOT NULL,
+        measurement_type TEXT NOT NULL DEFAULT '1q',
+        sample_count BIGINT NOT NULL CHECK (sample_count >= 0),
+        weighted_sample_count DOUBLE PRECISION NOT NULL CHECK (weighted_sample_count >= 0),
+        resolver_counts JSONB NOT NULL,
+        resolver_percentages JSONB NOT NULL,
+        raw_record JSONB NOT NULL,
+        sameas_pc DOUBLE PRECISION NOT NULL CHECK (sameas_pc BETWEEN 0 AND 100),
+        samecc_pc DOUBLE PRECISION NOT NULL CHECK (samecc_pc BETWEEN 0 AND 100),
+        googlepdns_pc DOUBLE PRECISION NOT NULL CHECK (googlepdns_pc BETWEEN 0 AND 100),
+        cloudflare_pc DOUBLE PRECISION NOT NULL CHECK (cloudflare_pc BETWEEN 0 AND 100),
+        diffcc_pc DOUBLE PRECISION NOT NULL CHECK (diffcc_pc BETWEEN 0 AND 100),
+        onedns_pc DOUBLE PRECISION NOT NULL CHECK (onedns_pc BETWEEN 0 AND 100),
+        dnspai_pc DOUBLE PRECISION NOT NULL CHECK (dnspai_pc BETWEEN 0 AND 100),
+        opendns_pc DOUBLE PRECISION NOT NULL CHECK (opendns_pc BETWEEN 0 AND 100),
+        quad9_pc DOUBLE PRECISION NOT NULL CHECK (quad9_pc BETWEEN 0 AND 100),
+        dns_114_pc DOUBLE PRECISION NOT NULL CHECK (dns_114_pc BETWEEN 0 AND 100),
+        last_update_ts TIMESTAMPTZ NOT NULL,
+        source TEXT NOT NULL REFERENCES data_source(source)
+    );
+    """,
+    """
     CREATE TABLE IF NOT EXISTS manrs_asn (
         asn BIGINT PRIMARY KEY CHECK (asn > 0 AND asn <= 4294967295),
         anti_spoofing_score DOUBLE PRECISION CHECK (anti_spoofing_score IS NULL OR anti_spoofing_score BETWEEN 0 AND 1),
@@ -572,6 +596,10 @@ STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS rpki_prefix_status_idx
         ON rpki_prefix (rpki_status);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS resolver_usage_apnic_observation_date_idx
+        ON resolver_usage_apnic (observation_date DESC);
     """,
 ]
 

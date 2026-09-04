@@ -27,6 +27,7 @@ Runtime `.env` files can contain credentials and should stay local. Use the matc
 | `measurements/zdns.conf` | Shared ZDNS binary, source-address, concurrency, timeout, and retry settings. |
 | `data_gathering/external_sources/caida/spoofer/spoofer.conf` | CAIDA Spoofer fetcher URL, paging, and data directory. |
 | `data_gathering/tasks/apnic_dnssec/apnic_dnssec.conf` | APNIC DNSSEC task URLs, worker counts, batch sizes, and data directory. |
+| `data_gathering/tasks/resolver_usage_apnic/resolver_usage_apnic.conf` | APNIC resolver-usage URL, measurement type, rate limits, retries, workers, and batch size. |
 | `data_gathering/tasks/caida_spoofer/caida_spoofer.conf` | CAIDA Spoofer task fetch/import settings. |
 | `data_gathering/tasks/manycast/manycast.conf` | Manycast IPv4/IPv6 export URLs, task logging, and data directory settings. |
 | `data_gathering/tasks/manrs/manrs.conf` | MANRS API key, summary URL, request limits, retries, workers, and upsert batch size. |
@@ -45,6 +46,7 @@ Copy examples before running services:
 ```bash
 cp .env.example .env
 cp measurements/zdns.conf.example measurements/zdns.conf
+cp data_gathering/tasks/resolver_usage_apnic/resolver_usage_apnic.conf.example data_gathering/tasks/resolver_usage_apnic/resolver_usage_apnic.conf
 cp data_gathering/tasks/manrs/manrs.conf.example data_gathering/tasks/manrs/manrs.conf
 cp data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf.example data_gathering/tasks/ipv6_hitlist/ipv6_hitlist.conf
 cp data_gathering/tasks/odns_v4/odns_v4.conf.example data_gathering/tasks/odns_v4/odns_v4.conf
@@ -404,6 +406,9 @@ docker compose run --rm data-gathering \
 
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.apnic_dnssec.refresh
+
+docker compose run --rm data-gathering \
+	celery -A data_gathering.celery_app call data_gathering.tasks.resolver_usage_apnic.refresh
 
 docker compose run --rm data-gathering \
 	celery -A data_gathering.celery_app call data_gathering.tasks.webpage_resolver.refresh

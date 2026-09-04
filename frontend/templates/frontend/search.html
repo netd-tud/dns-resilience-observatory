@@ -288,6 +288,43 @@
             return gauge("MANRS Compliance Score", payload.average_readiness_pc, detail);
         }
 
+        const apnicResolverUsageLabels = {
+            sameas: "Same AS",
+            samecc: "Same country",
+            googlepdns: "Google Public DNS",
+            cloudflare: "Cloudflare",
+            diffcc: "Different country",
+            onedns: "One DNS",
+            dnspai: "DNS PAI",
+            opendns: "OpenDNS",
+            quad9: "Quad9",
+            "114dns": "114 DNS",
+        };
+
+        function apnicResolverUsageHtml(payload) {
+            if (!payload?.available) {
+                return `<div class="empty">No APNIC resolver-usage observation is available for this economy.</div>`;
+            }
+            const observation = payload.observation_date || "Unknown date";
+            const sampleCount = formatNumber(payload.sample_count || 0);
+            return `
+                <div class="section-header">
+                    <div>
+                        <h2>APNIC Recursive DNS Resolver Usage</h2>
+                        <p>First-resolver observation for ${payload.country_code}, ${observation}; ${sampleCount} observations.</p>
+                    </div>
+                </div>
+                <div class="metric-grid">
+                    ${Object.entries(apnicResolverUsageLabels).map(([metric, label]) => {
+                        const value = payload.metrics?.[metric];
+                        return value === null || value === undefined
+                            ? `<div class="gauge-card"><div class="metric-label">${label}</div><div class="metric-subvalue">No measurement</div></div>`
+                            : gauge(label, value, "Share of APNIC observations");
+                    }).join("")}
+                </div>
+            `;
+        }
+
         function ratioBar(label, firstLabel, firstValue, secondLabel, secondValue) {
             const total = Math.max(Number(firstValue || 0) + Number(secondValue || 0), 1);
             const firstPc = (Number(firstValue || 0) / total) * 100;
@@ -779,13 +816,14 @@
                     </div>
                     <div id="scoped-resolver-prefixes">${loadingText()}</div>
                 </div>
+                ${isCountry ? `<div class="dashboard-section" id="scoped-apnic-resolver-usage">${loadingText()}</div>` : ""}
             `;
 
             loadPrefixPage("scoped-resolver-prefixes", `${targetPath}/prefixes`, 1);
 
             let completed = 0;
             let failed = 0;
-            const total = isCountry ? 5 : 4;
+            const total = isCountry ? 6 : 4;
             const markDone = () => {
                 completed += 1;
                 if (completed === total) {
@@ -856,6 +894,11 @@
                         setHtml("scoped-dnssec-card", gauge("DNSSEC validating", dnssecValidating, detail));
                     })
                     .catch(() => { failed += 1; setLoadingError("scoped-dnssec-card"); })
+                    .finally(markDone);
+
+                fetchApiPath(`${targetPath}/resolver-usage-apnic`)
+                    .then((usage) => setHtml("scoped-apnic-resolver-usage", apnicResolverUsageHtml(usage)))
+                    .catch(() => { failed += 1; setLoadingError("scoped-apnic-resolver-usage"); })
                     .finally(markDone);
             }
         }

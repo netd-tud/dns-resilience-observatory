@@ -146,6 +146,69 @@
                             </div>
                         </div>
                     </article>
+
+                    <article class="resolver-hero-card resolver-usage-comparison" data-resolver-usage-comparison aria-busy="true">
+                        <header class="resolver-hero-heading resolver-usage-comparison-heading">
+                            <p class="home-eyebrow home-eyebrow-dark">Observed Resolver Usage</p>
+                            <h2>User- and Forwarder-Centric Recursive DNS Resolver Usage</h2>
+                            <p class="resolver-hero-description">
+                                Compare the APNIC Labs world-level first-resolver measurement with recursive DNS
+                                resolver upstreams configured by recursive and transparent forwarders. The forwarder
+                                view uses only direct <code>forwarder_resolver_upstream</code> relationships.
+                            </p>
+                        </header>
+                        <div class="resolver-usage-columns">
+                            <section class="resolver-usage-column" data-apnic-resolver-usage>
+                                <div class="resolver-usage-column-heading">
+                                    <span>User-Centric View</span>
+                                    <h3>APNIC World</h3>
+                                    <p class="apnic-observation-meta" data-apnic-observation-meta aria-live="polite">Loading the latest world observation…</p>
+                                </div>
+                                <div class="resolver-usage-gauge-list" data-apnic-core-gauges></div>
+                                <div class="resolver-usage-companies" id="apnic-top-companies" hidden>
+                                    <h4>Top 5 Companies</h4>
+                                    <div class="resolver-usage-gauge-list" data-apnic-company-gauges></div>
+                                </div>
+                                <a class="resolver-usage-source-link" href="https://stats.labs.apnic.net/rvrs/XA?hc=XA&amp;hs=0&amp;hf=1" target="_blank" rel="noopener noreferrer">APNIC resolver-use dataset ↗</a>
+                            </section>
+
+                            <section class="resolver-usage-column" data-forwarder-usage-scope="recursive">
+                                <div class="resolver-usage-column-heading">
+                                    <span>Forwarder-Centric View</span>
+                                    <h3>Recursive Forwarders <small data-forwarder-count>(Loading…)</small></h3>
+                                    <p data-forwarder-coverage>Loading upstream resolver coverage…</p>
+                                </div>
+                                <div class="resolver-usage-gauge-list" data-forwarder-core-gauges></div>
+                                <div class="resolver-usage-companies" id="recursive-forwarder-top-companies" hidden>
+                                    <h4>Top 5 Companies</h4>
+                                    <div class="resolver-usage-gauge-list" data-forwarder-company-gauges></div>
+                                </div>
+                            </section>
+
+                            <section class="resolver-usage-column" data-forwarder-usage-scope="transparent">
+                                <div class="resolver-usage-column-heading">
+                                    <span>Forwarder-Centric View</span>
+                                    <h3>Transparent Forwarders <small data-forwarder-count>(Loading…)</small></h3>
+                                    <p data-forwarder-coverage>Loading upstream resolver coverage…</p>
+                                </div>
+                                <div class="resolver-usage-gauge-list" data-forwarder-core-gauges></div>
+                                <div class="resolver-usage-companies" id="transparent-forwarder-top-companies" hidden>
+                                    <h4>Top 5 Companies</h4>
+                                    <div class="resolver-usage-gauge-list" data-forwarder-company-gauges></div>
+                                </div>
+                            </section>
+                        </div>
+                        <button
+                            class="resolver-usage-companies-toggle"
+                            type="button"
+                            aria-expanded="false"
+                            aria-controls="apnic-top-companies recursive-forwarder-top-companies transparent-forwarder-top-companies"
+                            data-resolver-usage-companies-toggle
+                        >
+                            <span aria-hidden="true">+</span>
+                            <span data-resolver-usage-companies-toggle-label>Show Top 5 Companies</span>
+                        </button>
+                    </article>
                 </div>
 
                 <section class="practice-history" aria-labelledby="practice-history-title">
@@ -823,6 +886,13 @@
                                 <p>Provides IPv6 recursive DNS resolver IP addresses identified through UDP/53 measurements.</p>
                             </div>
                         </a>
+                        <a class="source-card source-card-link" data-source-key="apnic-resolver-usage" href="https://stats.labs.apnic.net/rvrs" target="_blank" rel="noopener noreferrer">
+                            <span class="source-number">08</span>
+                            <div>
+                                <h3>APNIC Resolver Usage <span class="source-external-icon" aria-hidden="true">↗</span></h3>
+                                <p>Provides country and world observations of the recursive DNS resolvers used by end users.</p>
+                            </div>
+                        </a>
                     </div>
                     <section class="source-distribution-card" data-source-distribution aria-busy="true" aria-labelledby="source-distribution-title">
                         <div class="source-distribution-heading">
@@ -898,8 +968,48 @@
             dual_stack_pc: "dual-stack",
             secure_protocol_pc: "secure-protocols",
         };
+        const apnicResolverProviderLabels = {
+            googlepdns: "Google Public DNS",
+            cloudflare: "Cloudflare",
+            cnnic: "CNNIC",
+            onedns: "One DNS",
+            dnspai: "DNS PAI",
+            dnspod: "DNSPod",
+            dnswatch: "DNS.WATCH",
+            dyn: "Dyn",
+            freedns: "FreeDNS",
+            greenteamdns: "GreenTeamDNS",
+            he: "Hurricane Electric",
+            level3: "Level 3",
+            neustar: "Neustar",
+            opendns: "OpenDNS",
+            opennic: "OpenNIC",
+            quad9: "Quad9",
+            uncensoreddns: "UncensoredDNS",
+            vrsgn: "Verisign",
+            yandex: "Yandex",
+            comodo: "Comodo",
+            safedns: "SafeDNS",
+            freenom: "Freenom",
+            cleanbrowsing: "CleanBrowsing",
+            alternatedns: "Alternate DNS",
+            puntcat: "PuntCAT",
+            alidns: "AliDNS",
+            baidu: "Baidu",
+            "114dns": "114 DNS",
+            quad101: "Quad101",
+            adguard: "AdGuard",
+            canadian_shield: "Canadian Shield",
+            skydns: "SkyDNS",
+            cznic: "CZ.NIC",
+            dns4eu: "DNS4EU",
+        };
         const resolverCountFormatter = new Intl.NumberFormat();
         const resolverPercentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+        const apnicPercentFormatter = new Intl.NumberFormat(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+        });
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         const requestedIpVersion = new URLSearchParams(window.location.search).get("ip_version");
         const defaultIpVersion = ["4", "6", "all"].includes(requestedIpVersion)
@@ -959,6 +1069,250 @@
                 "aria-label",
                 `${resolverMetricLabels[metric]}: ${absoluteLabel}, ${formattedValue}`,
             );
+        }
+
+        function formatApnicPercent(value) {
+            if (value > 0 && value < 0.1) {
+                return "<0.1%";
+            }
+            return `${apnicPercentFormatter.format(value)}%`;
+        }
+
+        function animateApnicPercent(element, targetValue) {
+            if (reducedMotion || (targetValue > 0 && targetValue < 0.1)) {
+                element.textContent = formatApnicPercent(targetValue);
+                return;
+            }
+            const startedAt = performance.now();
+            const duration = 900;
+            const step = (now) => {
+                const progress = Math.min((now - startedAt) / duration, 1);
+                const easedProgress = 1 - Math.pow(1 - progress, 3);
+                element.textContent = formatApnicPercent(targetValue * easedProgress);
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                }
+            };
+            requestAnimationFrame(step);
+        }
+
+        function formatResolverOrganization(value) {
+            const organization = String(value || "Unknown").trim() || "Unknown";
+            const firstToken = organization.match(/^[A-Za-z0-9]+/)?.[0] || organization;
+            const aliases = {
+                GOOGLE: "Google",
+                CLOUDFLARENET: "Cloudflare",
+                QUAD9: "Quad9",
+            };
+            return aliases[firstToken.toUpperCase()] || firstToken;
+        }
+
+        function renderResolverUsageGauges(grid, entries) {
+            grid.replaceChildren();
+            entries.forEach((entry) => {
+                const item = document.createElement("div");
+                item.className = "resolver-gauge-item";
+                const gauge = document.createElement("div");
+                gauge.className = "resolver-speedometer";
+                gauge.style.setProperty("--value", 0);
+                gauge.setAttribute("role", "img");
+                const arc = document.createElement("div");
+                arc.className = "resolver-speedometer-arc";
+                const valueLabel = document.createElement("strong");
+                valueLabel.textContent = "0.0%";
+                gauge.append(arc, valueLabel);
+
+                const value = Math.max(0, Math.min(100, Number(entry.value || 0)));
+                const exactCount = entry.count === null || entry.count === undefined
+                    ? null
+                    : resolverCountFormatter.format(Number(entry.count));
+                const exactTotal = entry.total === null || entry.total === undefined
+                    ? null
+                    : resolverCountFormatter.format(Number(entry.total));
+                const countDetail = exactCount === null
+                    ? ""
+                    : `; ${exactCount}${exactTotal === null ? "" : ` of ${exactTotal}`}`;
+                gauge.title = `${entry.label}: ${formatApnicPercent(value)}${countDetail}`;
+                gauge.setAttribute("aria-label", gauge.title);
+
+                const label = document.createElement("p");
+                if (entry.search) {
+                    const link = document.createElement("a");
+                    link.className = "resolver-gauge-label-link";
+                    link.href = `/search.html?q=${encodeURIComponent(entry.search)}`;
+                    link.textContent = entry.label;
+                    if (entry.fullLabel && entry.fullLabel !== entry.label) {
+                        link.title = entry.fullLabel;
+                    }
+                    label.append(link);
+                } else {
+                    label.textContent = entry.label;
+                }
+                item.append(gauge, label);
+                grid.append(item);
+                requestAnimationFrame(() => gauge.style.setProperty("--value", value));
+                animateApnicPercent(valueLabel, value);
+            });
+        }
+
+        function renderResolverUsageLoading(grid, count) {
+            grid.replaceChildren();
+            for (let index = 0; index < count; index += 1) {
+                const item = document.createElement("div");
+                item.className = "resolver-gauge-item";
+                item.innerHTML = `
+                    <div class="resolver-speedometer is-loading" style="--value: 0" role="img" aria-label="Loading resolver usage">
+                        <div class="resolver-speedometer-arc"></div><strong>…</strong>
+                    </div>
+                    <p>Loading…</p>
+                `;
+                grid.append(item);
+            }
+        }
+
+        function loadApnicResolverUsage() {
+            const card = document.querySelector("[data-apnic-resolver-usage]");
+            if (!card) {
+                return;
+            }
+            renderResolverUsageLoading(card.querySelector("[data-apnic-core-gauges]"), 2);
+            renderResolverUsageLoading(card.querySelector("[data-apnic-company-gauges]"), 5);
+            fetch(`${apiBaseUrl}/api/dns-resilience/global/resolver-usage-apnic`, { cache: "no-store" })
+                .then(async (response) => {
+                    const payload = await response.json();
+                    if (!response.ok) {
+                        throw new Error(payload.detail || payload.error || `Request failed with status ${response.status}`);
+                    }
+                    if (!payload.available || payload.country_code !== "XA") {
+                        throw new Error("No stored APNIC world observation is available");
+                    }
+                    return payload;
+                })
+                .then((payload) => {
+                    const topProviders = Object.entries(apnicResolverProviderLabels)
+                        .map(([metric, label]) => ({
+                            label,
+                            value: Number(payload.metrics?.[metric]),
+                            count: payload.counts?.[metric],
+                            total: payload.sample_count,
+                        }))
+                        .filter((entry) => Number.isFinite(entry.value))
+                        .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+                        .slice(0, 5);
+                    renderResolverUsageGauges(card.querySelector("[data-apnic-core-gauges]"), [
+                        {
+                            label: "Same AS",
+                            value: payload.metrics.sameas,
+                            count: payload.counts?.sameas,
+                            total: payload.sample_count,
+                        },
+                        {
+                            label: "Same Country",
+                            value: payload.metrics.samecc,
+                            count: payload.counts?.samecc,
+                            total: payload.sample_count,
+                        },
+                    ]);
+                    renderResolverUsageGauges(card.querySelector("[data-apnic-company-gauges]"), topProviders);
+                    const date = payload.observation_date
+                        ? new Date(`${payload.observation_date}T00:00:00Z`).toLocaleDateString()
+                        : "unknown date";
+                    const sampleCount = Number(payload.sample_count || 0);
+                    card.querySelector("[data-apnic-observation-meta]").textContent =
+                        `${date} · ${resolverCountFormatter.format(sampleCount)} observations · First resolver`;
+                    card.setAttribute("aria-busy", "false");
+                })
+                .catch(() => {
+                    card.querySelector("[data-apnic-core-gauges]").replaceChildren();
+                    card.querySelector("[data-apnic-company-gauges]").replaceChildren();
+                    card.querySelector("[data-apnic-observation-meta]").textContent =
+                        "No stored APNIC world observation is available yet.";
+                    card.setAttribute("aria-busy", "false");
+                });
+        }
+
+        function loadForwarderResolverUsage() {
+            const card = document.querySelector("[data-resolver-usage-comparison]");
+            if (!card) {
+                return;
+            }
+            card.querySelectorAll("[data-forwarder-usage-scope]").forEach((section) => {
+                renderResolverUsageLoading(section.querySelector("[data-forwarder-core-gauges]"), 2);
+                renderResolverUsageLoading(section.querySelector("[data-forwarder-company-gauges]"), 5);
+            });
+            fetch(`${apiBaseUrl}/api/dns-resilience/global/forwarder-resolver-usage`, { cache: "no-store" })
+                .then(async (response) => {
+                    const payload = await response.json();
+                    if (!response.ok || !payload.available) {
+                        throw new Error(payload.detail || payload.error || "Forwarder resolver usage is unavailable");
+                    }
+                    return payload;
+                })
+                .then((payload) => {
+                    ["recursive", "transparent"].forEach((scope) => {
+                        const section = card.querySelector(`[data-forwarder-usage-scope="${scope}"]`);
+                        const data = payload.scopes?.[scope];
+                        if (!section || !data) {
+                            return;
+                        }
+                        const total = Number(data.forwarder_count || 0);
+                        const linked = Number(data.linked_forwarder_count || 0);
+                        section.querySelector("[data-forwarder-count]").textContent =
+                            `(${resolverCountFormatter.format(total)})`;
+                        section.querySelector("[data-forwarder-coverage]").textContent =
+                            `${resolverCountFormatter.format(linked)} have a direct recursive DNS resolver upstream; ` +
+                            `AS metadata is comparable for ${resolverCountFormatter.format(Number(data.asn_comparable_count || 0))} ` +
+                            `and country metadata for ${resolverCountFormatter.format(Number(data.country_comparable_count || 0))}.`;
+                        const organizations = (data.top_resolver_organizations || []).map((organization) => ({
+                            label: formatResolverOrganization(organization.organization),
+                            fullLabel: organization.organization,
+                            value: organization.percent,
+                            count: organization.forwarder_count,
+                            total,
+                            search: organization.organization,
+                        }));
+                        renderResolverUsageGauges(section.querySelector("[data-forwarder-core-gauges]"), [
+                            {
+                                label: "Same AS",
+                                value: data.same_as_pc,
+                                count: data.same_as_count,
+                                total,
+                            },
+                            {
+                                label: "Same Country",
+                                value: data.same_country_pc,
+                                count: data.same_country_count,
+                                total,
+                            },
+                        ]);
+                        renderResolverUsageGauges(section.querySelector("[data-forwarder-company-gauges]"), organizations);
+                    });
+                    card.setAttribute("aria-busy", "false");
+                })
+                .catch(() => {
+                    card.querySelectorAll("[data-forwarder-coverage]").forEach((element) => {
+                        element.textContent = "Forwarder-centric resolver usage is currently unavailable.";
+                    });
+                    card.querySelectorAll("[data-forwarder-core-gauges], [data-forwarder-company-gauges]").forEach((grid) => grid.replaceChildren());
+                    card.setAttribute("aria-busy", "false");
+                });
+        }
+
+        function setupResolverUsageCompaniesToggle() {
+            const button = document.querySelector("[data-resolver-usage-companies-toggle]");
+            if (!button) {
+                return;
+            }
+            const card = button.closest("[data-resolver-usage-comparison]");
+            const label = button.querySelector("[data-resolver-usage-companies-toggle-label]");
+            button.addEventListener("click", () => {
+                const expanded = button.getAttribute("aria-expanded") === "true";
+                button.setAttribute("aria-expanded", String(!expanded));
+                card.querySelectorAll(".resolver-usage-companies").forEach((panel) => {
+                    panel.hidden = expanded;
+                });
+                label.textContent = expanded ? "Show Top 5 Companies" : "Hide Top 5 Companies";
+            });
         }
 
         function cardFamilyState(card) {
@@ -1109,6 +1463,7 @@
             "manycast": "Manycast",
             "caida-spoofer": "CAIDA Spoofer",
             "apnic-dnssec": "APNIC Labs",
+            "apnic-resolver-usage": "APNIC Resolver Usage",
             "manrs-observatory": "MANRS Observatory",
             "ipv6-hitlist-service": "IPv6 Hitlist Service",
             "ripe-stat-rpki": "RIPEstat RPKI",
@@ -1524,13 +1879,7 @@
         }
 
         function formatAnycastCompany(value) {
-            const company = String(value || "Unknown").trim() || "Unknown";
-            const aliases = {
-                GOOGLE: "Google",
-                CLOUDFLARENET: "Cloudflare",
-                "QUAD9-AS-1": "Quad9",
-            };
-            return aliases[company.toUpperCase()] || company;
+            return formatResolverOrganization(value);
         }
 
         function createAnycastCompanyLink(value) {
@@ -1543,6 +1892,9 @@
             link.href = `/search.html?q=${encodeURIComponent(`org:${company}`)}`;
             link.setAttribute("aria-label", `Search for recursive DNS resolvers operated by ${formatAnycastCompany(company)}`);
             link.textContent = formatAnycastCompany(company);
+            if (link.textContent !== company) {
+                link.title = company;
+            }
             return link;
         }
 
@@ -1942,6 +2294,9 @@
                 loadResolverHeroCard(card);
             }
         });
+        loadApnicResolverUsage();
+        loadForwarderResolverUsage();
+        setupResolverUsageCompaniesToggle();
 
         document.querySelectorAll(".practice-card-toggle").forEach((button) => {
             button.addEventListener("click", () => {

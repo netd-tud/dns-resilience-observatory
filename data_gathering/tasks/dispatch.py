@@ -18,6 +18,7 @@ FIRST_BOOTSTRAP_TASKS = [
     "data_gathering.tasks.caida_spoofer.refresh",
     "data_gathering.tasks.odns.refresh",
     "data_gathering.tasks.apnic_dnssec.refresh",
+    "data_gathering.tasks.resolver_usage_apnic.refresh",
     "data_gathering.tasks.webpage_resolver.refresh",
     "data_gathering.tasks.ipv6_hitlist.refresh",
     "data_gathering.tasks.manrs.refresh",
@@ -31,6 +32,7 @@ BOOTSTRAP_CONTENT_TABLES = [
     "forwarder",
     "dnssec_country",
     "dnssec_asn",
+    "resolver_usage_apnic",
 ]
 
 

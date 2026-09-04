@@ -1,0 +1,16 @@
+[tasks.py]
+logging_tag = resolver_usage_apnic_tasks
+
+[update_resolver_usage.py]
+logging_tag = update_resolver_usage.py
+json_url_template = https://stats.labs.apnic.net/rvrs/{country_code}
+measurement_type = 1q
+request_timeout_seconds = 30
+request_workers = 6
+requests_per_second = 4
+request_retries = 3
+request_backoff_seconds = 1
+upsert_batch_size = 100
+
+[script_config.py]
+logging_tag = resolver_usage_apnic_script_config.py
