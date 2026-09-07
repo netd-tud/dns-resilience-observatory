@@ -154,7 +154,6 @@ activemq-data/
 !.env.example
 !.env.*.example
 *.conf
-!nginx/default.conf
 !*.conf.example
 !data_gathering/tasks/rpki/rpki.conf
 .envrc

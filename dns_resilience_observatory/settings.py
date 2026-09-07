@@ -18,6 +18,8 @@ SECRET_KEY = ENV.get("DJANGO_SECRET_KEY", "django-insecure-change-me")
 DEBUG = ENV.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = _get_env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = _get_env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 INSTALLED_APPS = [

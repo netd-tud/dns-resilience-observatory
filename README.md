@@ -59,7 +59,7 @@ cp measurements/tasks/metainformation_resolvers/metainformation_resolvers.conf.e
 
 Replace these placeholders for setup:
 
-- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, and `DJANGO_SUPERUSER_PASSWORD`; adjust `DJANGO_ALLOWED_HOSTS` / `API_BASE_URL` for deployment. Docker Compose configures the frontend to use same-origin `API_BASE_URL=/` in production.
+- `.env`: set `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DJANGO_SECRET_KEY`, and `DJANGO_SUPERUSER_PASSWORD`. For a public deployment, also set `SERVER_DOMAIN`, `HTTP_PORT`, and (when HTTPS is enabled) `CERTBOT_EMAIL`. Docker Compose adds `SERVER_DOMAIN` to Django's allowed hosts and configures the frontend to use same-origin `API_BASE_URL=/`.
 - `measurements/zdns.conf`: set `ipv6_local_addr` to the global IPv6 address on the host's measurement interface. The shared file also controls ZDNS threads, timeout, retries, socket recycling, and binary path. It is ignored by Git and mounted read-only into the host-network runner.
 - `data_gathering/tasks/odns_v4/odns_v4.conf`: replace `<ODNS_API_AUTH_TOKEN>` with the ODNS API token.
 - `data_gathering/tasks/manrs/manrs.conf`: replace `<MANRS_API_KEY>` with the MANRS Observatory API key, then adjust the API URL, request rate, concurrency, retry, timeout, and batch settings when needed. This runtime file is ignored by Git and mounted read-only into the data-gathering containers.
@@ -166,9 +166,9 @@ Run:
 python db/apply_schema.py
 ```
 
-### Frontend on a Public Server IP
+### Public frontend and optional HTTPS
 
-Nginx is the only service with a public host-port mapping: `8000:80`. It accepts both domain-name and IP-address requests and forwards them to the private frontend container. PostgreSQL, RabbitMQ, and the API are available only on Docker networks. pgAdmin is bound to the server loopback interface (`127.0.0.1:5050`) and can be reached remotely using an SSH tunnel:
+Nginx is the only public web service. PostgreSQL, RabbitMQ, and the API remain available only on Docker networks. pgAdmin is bound to the server loopback interface (`127.0.0.1:5050`) and can be reached remotely using an SSH tunnel:
 
 ```bash
 ssh -L 5050:127.0.0.1:5050 <USER>@<SERVER_IP>
@@ -176,13 +176,97 @@ ssh -L 5050:127.0.0.1:5050 <USER>@<SERVER_IP>
 
 Then open `http://localhost:5050` on your workstation.
 
-Keep only the internal service names and local hosts in `.env`:
+The default Compose file does not request a certificate or bind host port 443. It serves plain HTTP and is suitable for local development:
 
 ```env
-DJANGO_ALLOWED_HOSTS=api,frontend,localhost,127.0.0.1
+SERVER_DOMAIN=localhost
+HTTP_PORT=8000
 ```
 
-Nginx forwards the upstream request with `Host: frontend`, so Django needs only the internal `frontend` hostname in `DJANGO_ALLOWED_HOSTS`; the public domain or IP does not need to be listed. The public frontend uses same-origin `/api/` paths, so browser requests stay on port 8000 while the separate `api` service remains private.
+```bash
+docker compose up -d --build nginx frontend api
+```
+
+To serve a public domain over HTTP without a certificate, set its domain and public port, then use the normal Compose file:
+
+```env
+SERVER_DOMAIN=dns-observatory.netd.cs.tu-dresden.de
+HTTP_PORT=80
+```
+
+To enable automatic certificate issuance and renewal with Let's Encrypt, additionally set:
+
+```env
+SERVER_DOMAIN=dns-observatory.netd.cs.tu-dresden.de
+HTTP_PORT=80
+HTTPS_PORT=443
+CERTBOT_EMAIL=your-address@example.com
+CERTBOT_CA=letsencrypt
+CERTBOT_STAGING=false
+```
+
+The domain's A and/or AAAA records must point to this server, and inbound TCP ports 80 and 443 must reach the Docker host. Port 80 is required for the ACME HTTP-01 challenge and remains open to redirect normal requests to HTTPS. Start the HTTPS overlay with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build nginx frontend api
+docker compose -f docker-compose.yml -f docker-compose.https.yml logs -f --timestamps nginx
+```
+
+Nginx initially serves HTTP so the HTTP-01 challenge is reachable. Its integrated Certbot process requests the certificate, switches nginx to the HTTPS configuration without stopping it, and checks for renewal every 12 hours. Certificates and ACME account data persist in the `letsencrypt_data` Docker volume. If issuance temporarily fails, HTTP continues to work and Certbot retries after five minutes.
+
+The container log includes Certbot's verbose output together with timestamped lifecycle messages. The messages use the stages `configuration`, `bootstrap`, `request`, `verification`, `installation`, `renewal`, `retry`, and `scheduling`, so the request result and nginx deployment result are independently visible. For example:
+
+```text
+[certificate] [level=INFO] [stage=request] Starting certificate request ...
+[certificate] [level=INFO] [stage=request] Certbot reported that the certificate request succeeded
+[certificate] [level=INFO] [stage=verification] Certificate files are present ...
+[certificate] [level=INFO] [stage=installation] Nginx configuration validation succeeded ...
+[certificate] [level=INFO] [stage=installation] Certificate installation succeeded ...
+```
+
+Certbot's detailed logfile and working state are also persisted in the `certbot_logs` and `certbot_work` volumes. Inspect the detailed file directly with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml exec nginx \
+  tail -n 300 /var/log/letsencrypt/letsencrypt.log
+```
+
+The certificate authority is selectable:
+
+- `CERTBOT_CA=letsencrypt` uses Certbot's default Let's Encrypt endpoint.
+- `CERTBOT_CA=tu-dresden` uses the TU Dresden PKI endpoint `https://acme.pki.cert.tu-dresden.de/`.
+- `CERTBOT_CA=custom` uses the endpoint supplied in `CERTBOT_SERVER_URL`.
+
+`CERTBOT_SERVER_URL` may also override the endpoint of either preset. Each non-default CA gets a separate certificate lineage by default, which permits changing providers without accidentally continuing to renew a certificate through the former provider. `CERTBOT_CERT_NAME` can override that lineage name when necessary.
+
+For the TU Dresden PKI, use:
+
+```env
+SERVER_DOMAIN=dns-observatory.netd.cs.tu-dresden.de
+HTTP_PORT=80
+HTTPS_PORT=443
+CERTBOT_EMAIL=your-address@tu-dresden.de
+CERTBOT_CA=tu-dresden
+CERTBOT_SERVER_URL=
+CERTBOT_STAGING=false
+```
+
+According to the [TU Dresden PKI instructions](https://faq.tickets.tu-dresden.de/otrs/public.pl?Action=PublicFAQZoom;ItemID=751), the hostname must be officially registered in DNS, assigned to TU Dresden, registered and validated with HARICA, and resolve to the campus server running the ACME client. The TU Dresden ACME validation system must be able to reach the host over HTTP port 80. If a CAA record applies to the domain, it must authorize `harica.gr`.
+
+Use the same two `-f` arguments for subsequent HTTPS deployment commands. To return deliberately to HTTP-only operation, run the base Compose file without the HTTPS overlay:
+
+```bash
+docker compose up -d --force-recreate nginx
+```
+
+Confirm the deployed certificate with:
+
+```bash
+curl -I https://dns-observatory.netd.cs.tu-dresden.de/
+docker compose -f docker-compose.yml -f docker-compose.https.yml exec nginx certbot certificates
+```
+
+The public hostname is forwarded to Django. Compose automatically appends `SERVER_DOMAIN` to `DJANGO_ALLOWED_HOSTS` and adds its HTTP and HTTPS origins to `DJANGO_CSRF_TRUSTED_ORIGINS`. Additional hostnames or trusted origins can still be listed in the corresponding `.env` variables.
 
 ## Common problems
 
