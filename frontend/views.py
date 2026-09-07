@@ -60,3 +60,7 @@ def search(request):
 
 def compare(request):
     return render(request, "frontend/compare.html", {"api_base_url": settings.API_BASE_URL})
+
+
+def legal_notice(request):
+    return render(request, "frontend/legalnotice.html")

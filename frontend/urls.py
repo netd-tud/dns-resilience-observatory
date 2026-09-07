@@ -9,4 +9,6 @@ urlpatterns = [
     path("search.html", views.search, name="search-html"),
     path("compare/", views.compare, name="compare"),
     path("compare.html", views.compare, name="compare-html"),
+    path("legalnotice/", views.legal_notice, name="legal-notice"),
+    path("legalnotice.html", views.legal_notice, name="legal-notice-html"),
 ]

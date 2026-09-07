@@ -77,6 +77,11 @@
                 </div>
             </div>
         </section>
+        <nav class="footer-legal-links" aria-label="Legal information">
+            <a href="{% url 'legal-notice-html' %}#provider">Legal Notice</a>
+            <a href="{% url 'legal-notice-html' %}#ck_datenschutz">Privacy</a>
+            <a href="{% url 'legal-notice-html' %}#accessibility">Accessibility</a>
+        </nav>
     </footer>
 
     {% block scripts %}{% endblock %}
